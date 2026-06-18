@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vdio-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/downloads:/app/downloads
+      - ./backend/history.json:/app/history.json
+    environment:
+      - DOWNLOAD_DIR=/app/downloads
+      - HISTORY_FILE=/app/history.json
+      - MAX_WORKERS=4
+      - FILE_TTL=3600
+      - CORS_ORIGINS=*
+    restart: unless-stopped
+    networks:
+      - vdio-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vdio-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - vdio-network
+
+networks:
+  vdio-network:
+    driver: bridge
+
+volumes:
+  downloads:

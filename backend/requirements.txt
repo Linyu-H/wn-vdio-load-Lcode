@@ -1,0 +1,7 @@
+# 后端依赖
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+yt-dlp==2025.6.9
+websockets==14.1
+python-multipart==0.0.20
+imageio-ffmpeg==0.6.0

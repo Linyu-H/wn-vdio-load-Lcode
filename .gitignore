@@ -1,0 +1,22 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# 下载产物
+backend/downloads/
+
+# 历史记录/运行时数据
+backend/history.json
+*.log
+
+# 系统/IDE
+.DS_Store
+.idea/
+.vscode/
