@@ -3,12 +3,15 @@
     <div v-if="isOpen" class="drawer-overlay" @click="close">
       <div class="drawer-panel" @click.stop>
         <div class="drawer-header">
-          <h3>📋 下载历史</h3>
-          <button @click="close" class="close-btn">×</button>
+          <h3><Icon name="history" :size="18" /> 下载历史</h3>
+          <button @click="close" class="close-btn" aria-label="关闭">
+            <Icon name="close" :size="18" />
+          </button>
         </div>
 
         <div class="drawer-content">
           <div v-if="history.length === 0" class="empty-history">
+            <div class="empty-history-icon"><Icon name="clock" :size="26" :stroke-width="1.5" /></div>
             <p>暂无下载记录</p>
           </div>
 
@@ -29,10 +32,10 @@
                 </div>
                 <div class="history-actions">
                   <button @click="redownload(item)" class="btn-mini">
-                    🔄 重新下载
+                    <Icon name="refresh" :size="13" /> 重新下载
                   </button>
                   <button @click="deleteItem(item.id)" class="btn-mini btn-danger">
-                    🗑️ 删除
+                    <Icon name="trash" :size="13" /> 删除
                   </button>
                 </div>
               </div>
@@ -42,7 +45,7 @@
 
         <div v-if="history.length > 0" class="drawer-footer">
           <button @click="clearAll" class="btn-secondary">
-            清空全部历史
+            <Icon name="trash" :size="15" /> 清空全部历史
           </button>
         </div>
       </div>
@@ -55,6 +58,7 @@ import { computed, watch, onMounted } from 'vue'
 import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import { getPlatformIcon } from '../utils/platform'
+import Icon from './Icon.vue'
 
 const store = useAppStore()
 const isOpen = computed(() => store.historyDrawerOpen)
@@ -134,11 +138,10 @@ watch(isOpen, (open) => {
 <style scoped>
 .drawer-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(8, 12, 18, 0.5);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   z-index: 1000;
   display: flex;
   justify-content: flex-end;
@@ -146,44 +149,49 @@ watch(isOpen, (open) => {
 
 .drawer-panel {
   width: 100%;
-  max-width: 450px;
+  max-width: 440px;
   height: 100%;
   background: var(--bg-card);
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
+  border-left: 1px solid var(--border);
 }
 
 .drawer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px;
-  border-bottom: 2px solid var(--border-color);
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border);
 }
 
 .drawer-header h3 {
-  font-size: 20px;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
+.drawer-header h3 :deep(.icon) { color: var(--accent); }
+
 .close-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-primary);
-  font-size: 24px;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
 }
 
 .close-btn:hover {
-  background: var(--accent-primary);
-  color: white;
-  transform: rotate(90deg);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .drawer-content {
@@ -194,39 +202,54 @@ watch(isOpen, (open) => {
 
 .empty-history {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 200px;
-  color: var(--text-secondary);
+  gap: 12px;
+  height: 240px;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.empty-history-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
 }
 
 .history-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
 .history-item {
   display: flex;
   gap: 12px;
   padding: 12px;
-  background: var(--bg-primary);
-  border-radius: var(--radius-sm);
-  transition: all 0.2s ease;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 
 .history-item:hover {
-  transform: translateX(-4px);
+  border-color: var(--border-strong);
   box-shadow: var(--shadow-sm);
 }
 
 .history-thumbnail {
-  width: 120px;
-  height: 68px;
-  border-radius: 8px;
+  width: 116px;
+  height: 66px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--bg-card);
+  background: var(--bg-inset);
 }
 
 .history-thumbnail img {
@@ -237,14 +260,15 @@ watch(isOpen, (open) => {
 
 .history-info {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
 }
 
 .history-title {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13.5px;
+  font-weight: 600;
   margin: 0;
   line-height: 1.4;
   display: -webkit-box;
@@ -257,7 +281,7 @@ watch(isOpen, (open) => {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
 }
 
 .history-actions {
@@ -267,75 +291,63 @@ watch(isOpen, (open) => {
 }
 
 .btn-mini {
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
   font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  transition: all 0.2s ease;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
 }
 
 .btn-mini:hover {
-  border-color: var(--accent-primary);
-  background: var(--accent-primary);
-  color: white;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .btn-mini.btn-danger:hover {
-  border-color: #ff6b6b;
-  background: #ff6b6b;
-  color: white;
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .drawer-footer {
-  padding: 16px 24px;
-  border-top: 2px solid var(--border-color);
+  padding: 16px 22px;
+  border-top: 1px solid var(--border);
 }
 
 .drawer-footer .btn-secondary {
   width: 100%;
-  padding: 12px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s ease;
 }
 
 .drawer-footer .btn-secondary:hover {
-  background: #ff6b6b;
-  color: white;
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .drawer-enter-active,
 .drawer-leave-active {
-  transition: opacity 0.3s ease;
+  transition: opacity 0.3s var(--ease);
 }
 
 .drawer-enter-active .drawer-panel,
 .drawer-leave-active .drawer-panel {
-  transition: transform 0.3s ease;
+  transition: transform 0.32s var(--ease-out);
 }
 
 .drawer-enter-from,
-.drawer-leave-to {
-  opacity: 0;
-}
+.drawer-leave-to { opacity: 0; }
 
 .drawer-enter-from .drawer-panel,
-.drawer-leave-to .drawer-panel {
-  transform: translateX(100%);
-}
+.drawer-leave-to .drawer-panel { transform: translateX(100%); }
 
 @media (max-width: 768px) {
-  .drawer-panel {
-    max-width: 100%;
-  }
-
-  .history-thumbnail {
-    width: 80px;
-    height: 45px;
-  }
+  .drawer-panel { max-width: 100%; }
+  .history-thumbnail { width: 88px; height: 50px; }
 }
 </style>

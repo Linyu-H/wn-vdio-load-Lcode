@@ -47,12 +47,15 @@ async function handleRedownload(url) {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background:
+    radial-gradient(900px 480px at 12% -8%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    radial-gradient(800px 460px at 100% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 70%),
+    var(--bg-app);
 }
 
 .main-content {
   flex: 1;
-  padding: 24px 32px;
+  padding: 32px;
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
@@ -60,16 +63,14 @@ async function handleRedownload(url) {
 
 .split-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
   gap: 24px;
-  height: 100%;
+  align-items: start;
   min-height: 600px;
 }
 
 .left-panel,
-.right-panel {
-  height: 100%;
-}
+.right-panel { height: 100%; }
 
 @media (max-width: 1024px) {
   .split-layout {
@@ -77,9 +78,7 @@ async function handleRedownload(url) {
     min-height: auto;
   }
 
-  .main-content {
-    padding: 20px;
-  }
+  .main-content { padding: 24px; }
 
   .left-panel,
   .right-panel {
@@ -89,12 +88,7 @@ async function handleRedownload(url) {
 }
 
 @media (max-width: 768px) {
-  .main-content {
-    padding: 16px;
-  }
-
-  .split-layout {
-    gap: 16px;
-  }
+  .main-content { padding: 16px; }
+  .split-layout { gap: 16px; }
 }
 </style>

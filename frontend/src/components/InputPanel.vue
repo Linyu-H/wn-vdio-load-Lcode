@@ -1,18 +1,26 @@
 <template>
   <div class="input-panel card">
-    <h2>📥 输入视频链接</h2>
+    <div class="panel-head">
+      <div class="panel-head-icon"><Icon name="link" :size="18" /></div>
+      <div>
+        <h2 class="panel-title">输入视频链接</h2>
+        <p class="panel-desc">支持批量解析，每行一个链接</p>
+      </div>
+    </div>
+
     <div class="url-input-wrapper">
       <textarea
         v-model="urls"
         @input="handleInput"
-        placeholder="粘贴视频链接，支持批量（每行一个）&#10;支持拖拽文本文件导入"
+        placeholder="粘贴视频链接，支持批量（每行一个）&#10;也可拖拽文本文件导入"
         class="url-textarea"
-        rows="8"
+        rows="7"
         @dragover.prevent="isDragging = true"
         @dragleave.prevent="isDragging = false"
         @drop.prevent="handleDrop"
         :class="{ dragging: isDragging }"
       ></textarea>
+
       <div v-if="urlList.length > 0" class="url-tags">
         <div
           v-for="(item, idx) in urlList"
@@ -30,24 +38,35 @@
             />
             <span v-else class="platform-icon">{{ item.icon }}</span>
           </span>
-          <span class="url-text" :title="item.url">{{ truncate(item.url, 30) }}</span>
-          <button @click="removeUrl(idx)" class="remove-btn">×</button>
-          <button v-if="item.valid" @click="parseSingle(item.url)" class="parse-btn" :disabled="isParsing">
-            {{ isParsing ? '…' : '🔍' }}
+          <span class="url-text" :title="item.url">{{ truncate(item.url, 38) }}</span>
+          <button
+            v-if="item.valid"
+            @click="parseSingle(item.url)"
+            class="tag-btn parse"
+            :disabled="isParsing"
+            title="解析此链接"
+          >
+            <Icon name="search" :size="15" />
+          </button>
+          <button @click="removeUrl(idx)" class="tag-btn remove" title="移除">
+            <Icon name="close" :size="15" />
           </button>
         </div>
       </div>
     </div>
 
     <div class="action-buttons">
-      <button @click="parseAll" class="btn-primary" :disabled="!hasValidUrls || isParsing">
-        {{ isParsing ? '解析中...' : '解析全部' }}
+      <button @click="parseAll" class="btn-primary parse-all" :disabled="!hasValidUrls || isParsing">
+        <Icon name="search" :size="16" />
+        {{ isParsing ? '解析中…' : '解析全部' }}
       </button>
       <button @click="pasteFromClipboard" class="btn-secondary">
-        📋 从剪贴板导入
+        <Icon name="clipboard" :size="16" />
+        剪贴板
       </button>
       <button @click="clearAll" class="btn-secondary" :disabled="urlList.length === 0">
-        🗑️ 清空
+        <Icon name="trash" :size="16" />
+        清空
       </button>
     </div>
   </div>
@@ -58,6 +77,7 @@ import { ref, computed } from 'vue'
 import { detectPlatformFromUrl, getFaviconUrl, getPlatformIcon, getUrlHost, isValidUrl } from '../utils/platform'
 import { api } from '../api'
 import { useAppStore } from '../stores/app'
+import Icon from './Icon.vue'
 
 const VIP_HINT_HOSTS = ['bilibili.com', 'b23.tv', 'v.qq.com', 'm.v.qq.com', 'iqiyi.com', 'iq.com', 'youku.com', 'mgtv.com', 'tudou.com', 'tv.sohu.com', 'film.sohu.com', 'le.com', 'pptv.com', 'wasu.cn', 'acfun.cn', '1905.com']
 
@@ -246,62 +266,88 @@ function truncate(str, len) {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
-h2 {
-  font-size: 18px;
-  font-weight: 600;
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.panel-head-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   margin: 0;
+}
+
+.panel-desc {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+  margin: 2px 0 0;
 }
 
 .url-input-wrapper {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .url-textarea {
   width: 100%;
-  min-height: 200px;
+  min-height: 180px;
   resize: vertical;
-  font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .url-textarea.dragging {
-  border-color: var(--accent-primary);
-  background: rgba(0, 184, 148, 0.05);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 .url-tags {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
+  padding-right: 4px;
 }
 
 .url-tag {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-primary);
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  background: var(--bg-subtle);
   border-radius: var(--radius-sm);
-  border: 2px solid var(--border-color);
-  transition: all 0.2s ease;
+  border: 1px solid var(--border);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
+
+.url-tag:hover { border-color: var(--border-strong); }
 
 .url-tag.invalid {
-  border-color: #ff6b6b;
-  opacity: 0.7;
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: var(--danger-soft);
 }
 
-.platform-icon {
-  font-size: 18px;
-}
+.platform-icon { font-size: 16px; line-height: 1; }
 
 .platform-logo-wrap {
   width: 22px;
@@ -316,85 +362,45 @@ h2 {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 5px;
   background: var(--bg-card);
 }
 
 .url-text {
   flex: 1;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.remove-btn, .parse-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
+.tag-btn {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-xs);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  font-weight: bold;
   background: transparent;
-  transition: all 0.2s ease;
+  color: var(--text-tertiary);
 }
 
-.remove-btn {
-  color: #ff6b6b;
-}
-
-.remove-btn:hover {
-  background: #ff6b6b;
-  color: white;
-}
-
-.parse-btn {
-  color: var(--accent-primary);
-}
-
-.parse-btn:hover {
-  background: var(--accent-primary);
-  color: white;
-}
+.tag-btn.parse:hover { background: var(--accent-soft); color: var(--accent); }
+.tag-btn.remove:hover { background: var(--danger-soft); color: var(--danger); }
 
 .action-buttons {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
-.btn-secondary {
-  padding: 10px 20px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.btn-secondary:hover {
-  background: var(--accent-primary);
-  color: white;
-  transform: translateY(-2px);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
-}
+.parse-all { flex: 1; min-width: 150px; }
 
 @media (max-width: 768px) {
-  .action-buttons {
-    flex-direction: column;
-  }
-
-  .action-buttons button {
-    width: 100%;
-  }
+  .action-buttons { flex-direction: column; }
+  .action-buttons button { width: 100%; }
 }
 </style>

@@ -1,8 +1,9 @@
 <template>
   <div class="preview-panel card">
     <div v-if="!videoInfo" class="empty-state">
-      <div class="empty-icon">🎬</div>
-      <p class="empty-text">解析后将在此处预览视频信息</p>
+      <div class="empty-icon"><Icon name="film" :size="30" :stroke-width="1.5" /></div>
+      <p class="empty-text">解析后将在此处预览视频</p>
+      <p class="empty-sub">粘贴链接并点击「解析全部」开始</p>
     </div>
 
     <div v-else class="video-info">
@@ -18,15 +19,18 @@
           <span v-else class="site-logo-fallback">
             {{ getPlatformIcon(videoInfo.platform) }}
           </span>
-          <div>
+          <div class="site-meta">
             <div class="site-name">{{ videoInfo.platform_name }}</div>
             <a class="source-link" :href="videoInfo.url" target="_blank" rel="noopener noreferrer">
-              打开原视频页
+              打开原视频页 <Icon name="external" :size="12" />
             </a>
           </div>
         </div>
+        <span v-if="videoInfo.vip_supported" class="vip-badge">
+          <Icon name="bolt" :size="13" /> VIP 解析
+        </span>
         <span v-if="videoInfo.playlist_count > 0" class="playlist-badge">
-          📋 {{ videoInfo.playlist_count }} 个视频
+          <Icon name="layers" :size="13" /> {{ videoInfo.playlist_count }}
         </span>
       </div>
 
@@ -48,41 +52,41 @@
         <h3 class="video-title">{{ videoInfo.title }}</h3>
         <div class="meta-info">
           <span v-if="videoInfo.uploader" class="meta-item">
-            👤 {{ videoInfo.uploader }}
+            <Icon name="user" :size="14" /> {{ videoInfo.uploader }}
           </span>
           <span v-if="videoInfo.duration" class="meta-item">
-            ⏱️ {{ formatDuration(videoInfo.duration) }}
-          </span>
-          <span class="meta-item">
-            {{ getPlatformIcon(videoInfo.platform) }} {{ videoInfo.platform_name }}
+            <Icon name="clock" :size="14" /> {{ formatDuration(videoInfo.duration) }}
           </span>
         </div>
       </div>
 
-      <div v-if="videoInfo.vip_supported && videoInfo.vip_parse_sources?.length" class="vip-selector">
-        <h4>VIP 解析源</h4>
-        <div class="vip-buttons">
+      <div v-if="videoInfo.vip_supported && videoInfo.vip_parse_sources?.length" class="selector-group">
+        <span class="section-label">VIP 解析源</span>
+        <div class="chip-row">
           <button
             v-for="source in videoInfo.vip_parse_sources"
             :key="source.id"
             @click="selectedVipSource = source.id"
-            class="quality-btn"
+            class="chip"
             :class="{ active: selectedVipSource === source.id }"
           >
             {{ source.name }}
           </button>
         </div>
-        <p class="vip-tip">预览使用当前解析源；下载仅在点击下载后尝试使用当前解析源直链。</p>
+        <p class="hint">
+          <Icon name="alert" :size="13" />
+          预览使用当前解析源；下载时将通过该源抓取直链
+        </p>
       </div>
 
-      <div class="quality-selector">
-        <h4>选择画质</h4>
-        <div class="quality-buttons">
+      <div class="selector-group">
+        <span class="section-label">画质</span>
+        <div class="chip-row">
           <button
             v-for="q in videoInfo.qualities"
             :key="q.id"
             @click="selectedQuality = q.id"
-            class="quality-btn"
+            class="chip"
             :class="{ active: selectedQuality === q.id }"
           >
             {{ q.label }}
@@ -96,39 +100,41 @@
           class="btn-primary download-btn"
           :disabled="downloading"
         >
-          {{ downloading ? '下载中...' : (videoInfo.vip_supported ? '📥 尝试 VIP 下载' : '📥 下载视频') }}
+          <Icon name="download" :size="16" />
+          {{ downloading ? '下载中…' : (videoInfo.vip_supported ? 'VIP 下载' : '下载视频') }}
         </button>
         <button
           @click="startDownload(true)"
-          class="btn-secondary download-btn"
+          class="btn-secondary download-btn audio"
           :disabled="downloading"
         >
-          🎵 仅下载音频
+          <Icon name="audio" :size="16" />
+          仅音频
         </button>
       </div>
 
       <div v-if="taskStatus" class="progress-section">
         <div class="progress-header">
-          <span class="status-text">{{ taskStatus.status }}</span>
+          <span class="status-text">
+            <span class="status-dot" :class="taskStatus.status"></span>
+            {{ statusLabel(taskStatus.status) }}
+          </span>
           <span class="progress-percent">{{ taskStatus.progress }}%</span>
         </div>
         <div class="progress-bar">
-          <div
-            class="progress-fill"
-            :style="{ width: taskStatus.progress + '%' }"
-          ></div>
+          <div class="progress-fill" :style="{ width: taskStatus.progress + '%' }"></div>
         </div>
         <div v-if="taskStatus.speed" class="progress-meta">
-          <span>速度: {{ taskStatus.speed }}</span>
-          <span v-if="taskStatus.eta">剩余: {{ taskStatus.eta }}s</span>
+          <span>{{ taskStatus.speed }}</span>
+          <span v-if="taskStatus.eta">剩余 {{ taskStatus.eta }}s</span>
         </div>
         <div v-if="taskStatus.status === 'completed'" class="download-link">
           <a :href="getDownloadUrl(taskStatus.id)" class="btn-primary" download>
-            💾 保存到本地
+            <Icon name="save" :size="16" /> 保存到本地
           </a>
         </div>
         <div v-if="taskStatus.error" class="error-message">
-          ❌ {{ taskStatus.error }}
+          <Icon name="alert" :size="15" /> {{ taskStatus.error }}
         </div>
       </div>
     </div>
@@ -140,6 +146,7 @@ import { ref, computed, watch } from 'vue'
 import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import { getPlatformIcon } from '../utils/platform'
+import Icon from './Icon.vue'
 
 const store = useAppStore()
 const videoInfo = computed(() => store.videoInfo)
@@ -180,6 +187,18 @@ function formatDuration(seconds) {
   const s = Math.floor(seconds % 60)
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+const STATUS_LABELS = {
+  waiting: '等待中',
+  downloading: '下载中',
+  processing: '处理中',
+  completed: '已完成',
+  error: '失败',
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status
 }
 
 function hideBrokenLogo() {
@@ -267,17 +286,32 @@ function getDownloadUrl(taskId) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  opacity: 0.5;
+  gap: 10px;
+  min-height: 380px;
 }
 
 .empty-icon {
-  font-size: 64px;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
 }
 
 .empty-text {
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text-secondary);
+}
+
+.empty-sub {
+  font-size: 13px;
+  color: var(--text-tertiary);
 }
 
 .video-info {
@@ -289,15 +323,15 @@ function getDownloadUrl(taskId) {
 .site-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .site-brand {
+  flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -306,36 +340,17 @@ function getDownloadUrl(taskId) {
 
 .site-logo,
 .site-logo-fallback {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   flex: 0 0 auto;
-  border-radius: 12px;
+  border-radius: 11px;
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
 }
 
 .site-logo {
   object-fit: cover;
   padding: 3px;
-}
-
-.vip-selector h4 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-}
-
-.vip-buttons {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.vip-tip {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
 }
 
 .site-logo-fallback {
@@ -345,22 +360,49 @@ function getDownloadUrl(taskId) {
   font-size: 20px;
 }
 
+.site-meta { min-width: 0; }
+
 .site-name {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14.5px;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
 .source-link {
-  display: inline-block;
-  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
   font-size: 12px;
-  color: var(--accent-primary);
+  font-weight: 500;
+  color: var(--accent);
   text-decoration: none;
 }
 
-.source-link:hover {
-  text-decoration: underline;
+.source-link:hover { text-decoration: underline; }
+
+.vip-badge,
+.playlist-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.vip-badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.playlist-badge {
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
 }
 
 .iframe-preview,
@@ -368,13 +410,12 @@ function getDownloadUrl(taskId) {
   width: 100%;
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  background: #000;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
-.iframe-preview {
-  aspect-ratio: 16 / 9;
-}
+.iframe-preview { aspect-ratio: 16 / 9; }
 
 .iframe-preview iframe {
   width: 100%;
@@ -392,20 +433,21 @@ function getDownloadUrl(taskId) {
 .info-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .video-title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
   line-height: 1.4;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .meta-info {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 16px;
   font-size: 13px;
   color: var(--text-secondary);
 }
@@ -413,57 +455,60 @@ function getDownloadUrl(taskId) {
 .meta-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 
-.playlist-badge {
-  flex: 0 0 auto;
-  background: var(--accent-primary);
-  color: white;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
+.meta-item :deep(.icon) { color: var(--text-tertiary); }
+
+.selector-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.quality-selector h4 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-}
-
-.quality-buttons {
+.chip-row {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.quality-btn {
-  padding: 10px 16px;
-  background: var(--bg-primary);
-  border: 2px solid var(--border-color);
+.chip {
+  padding: 8px 15px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chip:hover {
+  border-color: var(--border-strong);
   color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.2s ease;
 }
 
-.quality-btn:hover {
-  border-color: var(--accent-primary);
-  transform: translateY(-2px);
+.chip.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-.quality-btn.active {
-  background: var(--accent-gradient);
-  color: white;
-  border-color: var(--accent-primary);
+.hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
 }
+
+.hint :deep(.icon) { margin-top: 1px; flex-shrink: 0; }
 
 .download-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -472,10 +517,13 @@ function getDownloadUrl(taskId) {
   min-width: 150px;
 }
 
+.download-btn.audio { flex: 0 0 auto; min-width: 120px; }
+
 .progress-section {
   padding: 16px;
-  background: var(--bg-primary);
-  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -485,25 +533,57 @@ function getDownloadUrl(taskId) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .status-text {
-  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.status-dot.downloading,
+.status-dot.processing,
+.status-dot.waiting {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+  animation: pulse 1.4s var(--ease) infinite;
+}
+
+.status-dot.completed { background: var(--brand-500); }
+.status-dot.error { background: var(--danger); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.progress-percent {
+  font-family: var(--font-mono);
+  color: var(--accent);
 }
 
 .progress-bar {
-  height: 8px;
-  background: var(--bg-card);
-  border-radius: 4px;
+  height: 7px;
+  background: var(--bg-inset);
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
   background: var(--accent-gradient);
-  transition: width 0.3s ease;
+  border-radius: var(--radius-pill);
+  transition: width 0.3s var(--ease);
   position: relative;
   overflow: hidden;
 }
@@ -511,64 +591,54 @@ function getDownloadUrl(taskId) {
 .progress-fill::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.3),
-    transparent
-  );
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
   animation: shimmer 1.5s infinite;
 }
 
 @keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 .progress-meta {
   display: flex;
   justify-content: space-between;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.download-link {
-  margin-top: 8px;
-}
+.download-link { margin-top: 4px; }
 
 .download-link a {
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   text-decoration: none;
   width: 100%;
-  text-align: center;
 }
 
 .error-message {
-  color: #ff6b6b;
-  font-size: 14px;
-  padding: 12px;
-  background: rgba(255, 107, 107, 0.1);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  background: var(--danger-soft);
   border-radius: var(--radius-sm);
-  border-left: 3px solid #ff6b6b;
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
-@media (max-width: 768px) {
-  .site-header,
-  .download-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
+.error-message :deep(.icon) { margin-top: 1px; flex-shrink: 0; }
 
-  .download-btn {
-    width: 100%;
-  }
+@media (max-width: 768px) {
+  .site-header { flex-wrap: wrap; }
+  .download-actions { flex-direction: column; }
+  .download-btn,
+  .download-btn.audio { width: 100%; min-width: 0; }
 }
 </style>
