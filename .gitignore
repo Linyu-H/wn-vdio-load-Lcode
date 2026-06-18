@@ -14,6 +14,8 @@ backend/downloads/
 
 # 历史记录/运行时数据
 backend/history.json
+backend/vip_sources.json
+backend/users.json
 *.log
 
 # 系统/IDE

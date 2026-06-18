@@ -8,18 +8,41 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from app.config import DOWNLOAD_DIR
 from app.services import downloader
 from app.services.platform import is_valid_url
-from app.services.vip_parser import build_vip_info, is_vip_supported_url
+from app.services.vip_parser import build_vip_info, is_vip_supported_url, get_vip_sources_for_url
 from app.services.task_manager import task_manager
 from app.api.history import history_manager
+from app.services.auth import auth_manager, verify_token
+from app.services.source_store import source_store
+from app.services.source_health import source_health
+from app.services.episodes import get_episodes
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger("vdio.api")
+
+
+# ──────────────────────────────────────────────────────────────
+#  鉴权依赖
+# ──────────────────────────────────────────────────────────────
+
+def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, detail="未登录")
+    payload = verify_token(authorization[7:])
+    if not payload:
+        raise HTTPException(401, detail="登录已失效，请重新登录")
+    return payload
+
+
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(403, detail="需要管理员权限")
+    return user
 
 
 # ──────────────────────────────────────────────────────────────
@@ -165,3 +188,110 @@ async def delete_history(task_id: str):
 async def clear_history():
     history_manager.clear()
     return {"code": 0, "msg": "历史记录已清空"}
+
+
+# ──────────────────────────────────────────────────────────────
+#  账号系统
+# ──────────────────────────────────────────────────────────────
+
+@router.post("/auth/register")
+async def register(username: str = Body(...), password: str = Body(...)):
+    try:
+        user = auth_manager.register(username, password)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    return {"code": 0, "data": user}
+
+
+@router.post("/auth/login")
+async def login(username: str = Body(...), password: str = Body(...)):
+    try:
+        data = auth_manager.login(username, password)
+    except ValueError as e:
+        raise HTTPException(401, detail=str(e))
+    return {"code": 0, "data": data}
+
+
+@router.get("/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    return {"code": 0, "data": user}
+
+
+# ──────────────────────────────────────────────────────────────
+#  VIP 源自动解析（健康探测 + 熔断排序）
+# ──────────────────────────────────────────────────────────────
+
+@router.post("/vip/resolve")
+async def vip_resolve(url: str = Body(..., embed=True)):
+    """返回当前链接的健康 VIP 源有序列表（健康的排前面，供前端自动播放）。"""
+    if not is_valid_url(url):
+        raise HTTPException(400, detail="链接格式无效")
+    sources = get_vip_sources_for_url(url)
+    if not sources:
+        return {"code": 0, "data": {"sources": [], "best": None}}
+    ranked = await asyncio.to_thread(source_health.rank, sources, url)
+    best = next((s for s in ranked if s.get("healthy")), ranked[0] if ranked else None)
+    return {"code": 0, "data": {"sources": ranked, "best": best}}
+
+
+@router.post("/vip/report-failure")
+async def vip_report_failure(source_id: str = Body(..., embed=True)):
+    """前端反馈某源播放失败，累计熔断。"""
+    source_health.report_failure(source_id)
+    return {"code": 0, "msg": "已记录"}
+
+
+# ──────────────────────────────────────────────────────────────
+#  上下集导航
+# ──────────────────────────────────────────────────────────────
+
+@router.get("/episodes")
+async def episodes(url: str = Query(...)):
+    if not is_valid_url(url):
+        raise HTTPException(400, detail="链接格式无效")
+    data = await asyncio.to_thread(get_episodes, url)
+    return {"code": 0, "data": data}
+
+
+# ──────────────────────────────────────────────────────────────
+#  管理端：VIP 源 CRUD（需 admin）
+# ──────────────────────────────────────────────────────────────
+
+@router.get("/admin/sources")
+async def admin_list_sources(_: dict = Depends(require_admin)):
+    return {"code": 0, "data": source_store.list_all()}
+
+
+@router.post("/admin/sources")
+async def admin_add_source(
+    name: str = Body(...),
+    url: str = Body(...),
+    enabled: bool = Body(True),
+    _: dict = Depends(require_admin),
+):
+    if not url.strip():
+        raise HTTPException(400, detail="解析源 URL 不能为空")
+    source = source_store.add(name, url, enabled)
+    return {"code": 0, "data": source}
+
+
+@router.put("/admin/sources/{source_id}")
+async def admin_update_source(
+    source_id: str,
+    name: Optional[str] = Body(None),
+    url: Optional[str] = Body(None),
+    enabled: Optional[bool] = Body(None),
+    order: Optional[int] = Body(None),
+    _: dict = Depends(require_admin),
+):
+    updated = source_store.update(source_id, name=name, url=url, enabled=enabled, order=order)
+    if not updated:
+        raise HTTPException(404, detail="解析源不存在")
+    return {"code": 0, "data": updated}
+
+
+@router.delete("/admin/sources/{source_id}")
+async def admin_delete_source(source_id: str, _: dict = Depends(require_admin)):
+    if not source_store.delete(source_id):
+        raise HTTPException(404, detail="解析源不存在")
+    return {"code": 0, "msg": "已删除"}

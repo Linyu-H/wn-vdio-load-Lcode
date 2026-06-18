@@ -2,7 +2,7 @@
   <header class="app-header">
     <div class="header-inner">
       <div class="header-left">
-        <span class="brand-mark">avl</span>
+         <img class="brand-mark" src="/vdio-logo.png" alt="logo" />
         <span class="brand-name">analyze vdio loader <span class="brand-code">Lcode</span></span>
       </div>
 
@@ -13,6 +13,15 @@
         <button @click="toggleTheme" class="icon-btn" :title="isDark ? '切换浅色' : '切换深色'" aria-label="切换主题">
           <Icon :name="isDark ? 'sun' : 'moon'" :size="19" />
         </button>
+        <button v-if="isAdmin" @click="goAdmin" class="text-btn" title="管理端">
+          <Icon name="shield" :size="16" /> 管理端
+        </button>
+        <button v-if="isLoggedIn" @click="logout" class="text-btn ghost" :title="`退出 ${store.user?.username}`">
+          {{ store.user?.username }}
+        </button>
+        <button v-else @click="goLogin" class="text-btn solid">
+          <Icon name="user" :size="16" /> 登录
+        </button>
       </div>
     </div>
   </header>
@@ -20,11 +29,15 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import Icon from './Icon.vue'
 
 const store = useAppStore()
+const router = useRouter()
 const isDark = computed(() => store.isDark)
+const isLoggedIn = computed(() => store.isLoggedIn)
+const isAdmin = computed(() => store.isAdmin)
 
 function toggleTheme() {
   store.toggleTheme()
@@ -32,6 +45,15 @@ function toggleTheme() {
 
 function toggleHistory() {
   store.toggleHistoryDrawer()
+}
+
+function goLogin() { router.push('/login') }
+function goAdmin() { router.push('/admin') }
+function logout() {
+  if (confirm('确定退出登录？')) {
+    store.logout()
+    router.push('/')
+  }
 }
 </script>
 
@@ -109,6 +131,28 @@ function toggleHistory() {
 }
 
 .icon-btn:active { transform: translateY(1px); }
+
+.text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.text-btn:hover { background: var(--bg-hover); color: var(--accent); border-color: var(--border-strong); }
+.text-btn.solid {
+  background: var(--accent);
+  color: var(--text-on-brand);
+  border-color: transparent;
+}
+.text-btn.solid:hover { background: var(--accent-hover); color: var(--text-on-brand); }
+.text-btn.ghost { color: var(--text-primary); }
 
 @media (max-width: 640px) {
   .header-inner { padding: 10px 16px; }

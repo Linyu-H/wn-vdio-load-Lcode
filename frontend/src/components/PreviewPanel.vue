@@ -48,6 +48,19 @@
         <img :src="videoInfo.thumbnail" :alt="videoInfo.title" loading="lazy" />
       </div>
 
+      <div v-if="hasEpisodes" class="episode-bar">
+        <button class="ep-btn" :disabled="!hasPrev" @click="prevEpisode" title="上一集">
+          <Icon name="play" :size="14" :stroke-width="2" style="transform: rotate(180deg)" /> 上一集
+        </button>
+        <span class="ep-current" :title="currentEpisodeTitle">
+          {{ episodeIndex + 1 }} / {{ episodes.length }}
+          <em v-if="currentEpisodeTitle">· {{ currentEpisodeTitle }}</em>
+        </span>
+        <button class="ep-btn" :disabled="!hasNext" @click="nextEpisode" title="下一集">
+          下一集 <Icon name="play" :size="14" :stroke-width="2" />
+        </button>
+      </div>
+
       <div class="info-content">
         <h3 class="video-title">{{ videoInfo.title }}</h3>
         <div class="meta-info">
@@ -60,22 +73,32 @@
         </div>
       </div>
 
-      <div v-if="videoInfo.vip_supported && videoInfo.vip_parse_sources?.length" class="selector-group">
-        <span class="section-label">VIP 解析源</span>
+      <div v-if="videoInfo.vip_supported && displaySources.length" class="selector-group">
+        <div class="selector-head">
+          <span class="section-label">VIP 解析源</span>
+          <span v-if="resolving" class="resolve-state"><span class="mini-spinner"></span> 探测健康源…</span>
+          <span v-else-if="autoMode" class="resolve-state ok"><Icon name="bolt" :size="12" /> 自动选源</span>
+          <button class="switch-src" @click="reportAndSwitch" title="当前源播放失败？换下一个">
+            <Icon name="refresh" :size="13" /> 播放失败，换源
+          </button>
+        </div>
         <div class="chip-row">
           <button
-            v-for="source in videoInfo.vip_parse_sources"
+            v-for="source in displaySources"
             :key="source.id"
-            @click="selectedVipSource = source.id"
+            @click="selectSource(source.id)"
             class="chip"
-            :class="{ active: selectedVipSource === source.id }"
+            :class="{ active: selectedVipSource === source.id, dead: source.healthy === false, healthy: source.healthy === true }"
+            :title="source.health ? `状态：${source.health}` : ''"
           >
+            <span v-if="source.healthy === true" class="dot ok"></span>
+            <span v-else-if="source.healthy === false" class="dot bad"></span>
             {{ source.name }}
           </button>
         </div>
         <p class="hint">
           <Icon name="alert" :size="13" />
-          预览使用当前解析源；下载时将通过该源抓取直链
+          绿点=可用，灰点=不可用（已自动排序）。当前源播不出时点「换源」。
         </p>
       </div>
 
@@ -142,7 +165,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import { getPlatformIcon } from '../utils/platform'
@@ -157,10 +180,32 @@ const downloading = ref(false)
 const taskStatus = ref(null)
 let ws = null
 
+// 自动解析 / 健康源
+const rankedSources = ref([])      // 后端探测排序后的源（健康在前）
+const resolving = ref(false)       // 正在探测健康源
+const autoMode = ref(true)         // 自动模式：用健康源自动播放
+let switchTimer = null
+
+// 上下集
+const episodes = ref([])
+const episodeIndex = ref(-1)
+const hasEpisodes = computed(() => episodes.value.length > 1)
+const hasPrev = computed(() => episodeIndex.value > 0)
+const hasNext = computed(() => episodeIndex.value >= 0 && episodeIndex.value < episodes.value.length - 1)
+const currentEpisodeTitle = computed(() =>
+  episodeIndex.value >= 0 ? episodes.value[episodeIndex.value]?.title : ''
+)
+
+// 当前用于预览的源列表：优先后端探测结果，否则回退原始顺序
+const displaySources = computed(() => {
+  if (rankedSources.value.length) return rankedSources.value
+  return videoInfo.value?.vip_parse_sources || []
+})
+
 const currentPreviewUrl = computed(() => {
   if (!videoInfo.value) return ''
   if (videoInfo.value.vip_supported && selectedVipSource.value) {
-    const source = videoInfo.value.vip_parse_sources?.find(item => item.id === selectedVipSource.value)
+    const source = displaySources.value.find(item => item.id === selectedVipSource.value)
     if (source) {
       return source.preview_url || (source.url + encodeURIComponent(videoInfo.value.url))
     }
@@ -168,16 +213,96 @@ const currentPreviewUrl = computed(() => {
   return videoInfo.value.vip_preview_url || videoInfo.value.preview_url || ''
 })
 
+const currentSourceHealthy = computed(() => {
+  const s = rankedSources.value.find(item => item.id === selectedVipSource.value)
+  return s ? s.healthy : null
+})
+
 watch(videoInfo, (newInfo) => {
   siteLogoBroken.value = false
-  if (newInfo?.vip_supported && newInfo.vip_parse_sources?.length) {
-    selectedVipSource.value = newInfo.vip_parse_sources[0].id
-  } else {
-    selectedVipSource.value = null
-  }
+  rankedSources.value = []
   if (newInfo && newInfo.qualities && newInfo.qualities.length > 0) {
     selectedQuality.value = newInfo.qualities.find(q => q.id === '1080')?.id || newInfo.qualities[0].id
   }
+  if (newInfo?.vip_supported && newInfo.vip_parse_sources?.length) {
+    selectedVipSource.value = newInfo.vip_parse_sources[0].id
+    resolveHealthySources(newInfo.url)   // VIP：自动探测健康源
+  } else {
+    selectedVipSource.value = null
+  }
+  if (newInfo?.url) loadEpisodes(newInfo.url)
+})
+
+async function resolveHealthySources(url) {
+  resolving.value = true
+  try {
+    const res = await api.resolveVip(url)
+    if (res.code === 0 && res.data.sources?.length) {
+      rankedSources.value = res.data.sources
+      if (autoMode.value && res.data.best) {
+        selectedVipSource.value = res.data.best.id   // 自动切到最佳健康源
+      }
+    }
+  } catch { /* 探测失败保持原选择 */ } finally {
+    resolving.value = false
+  }
+}
+
+async function loadEpisodes(url) {
+  episodes.value = []
+  episodeIndex.value = -1
+  try {
+    const res = await api.getEpisodes(url)
+    if (res.code === 0 && res.data.episodes?.length > 1) {
+      episodes.value = res.data.episodes
+      episodeIndex.value = res.data.current_index
+    }
+  } catch { /* 无上下集 */ }
+}
+
+async function gotoEpisode(idx) {
+  if (idx < 0 || idx >= episodes.value.length) return
+  const ep = episodes.value[idx]
+  try {
+    const res = await api.parseInfo(ep.url)
+    if (res.code === 0) {
+      store.setVideoInfo(res.data)   // 触发 watch，自动重新探测+加载剧集
+    } else {
+      // 普通视频解析失败，尝试 VIP
+      const vip = await api.parseInfo(ep.url, { forceVip: true })
+      if (vip.code === 0) store.setVideoInfo(vip.data)
+    }
+  } catch (err) {
+    alert('切换剧集失败：' + (err.message || ''))
+  }
+}
+
+function prevEpisode() { if (hasPrev.value) gotoEpisode(episodeIndex.value - 1) }
+function nextEpisode() { if (hasNext.value) gotoEpisode(episodeIndex.value + 1) }
+
+// 手动选源时关闭自动模式
+function selectSource(id) {
+  selectedVipSource.value = id
+  autoMode.value = false
+}
+
+// 用户反馈当前源播不了：上报熔断 + 自动切下一个健康源
+function reportAndSwitch() {
+  const cur = selectedVipSource.value
+  if (cur) api.reportVipFailure(cur)
+  const list = displaySources.value
+  const curIdx = list.findIndex(s => s.id === cur)
+  const next = list[curIdx + 1]
+  if (next) {
+    selectedVipSource.value = next.id
+  } else {
+    alert('已尝试所有解析源，建议稍后重试或在管理端添加新源')
+  }
+}
+
+onBeforeUnmount(() => {
+  if (switchTimer) clearTimeout(switchTimer)
+  if (ws) ws.close()
 })
 
 function formatDuration(seconds) {
@@ -506,6 +631,95 @@ function getDownloadUrl(taskId) {
 }
 
 .chip:active { transform: translateY(0); }
+
+/* ── 上下集导航 ── */
+.episode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ep-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.ep-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ep-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ep-current {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-current em { font-style: normal; color: var(--text-tertiary); font-weight: 500; }
+
+/* ── 源健康 + 自动选源 ── */
+.selector-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.resolve-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.resolve-state.ok { color: var(--accent); }
+.switch-src {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.switch-src:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+.mini-spinner {
+  width: 11px; height: 11px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.chip .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.chip .dot.ok { background: var(--brand-500); }
+.chip .dot.bad { background: var(--text-tertiary); }
+.chip.dead { opacity: 0.55; }
 
 .chip.active {
   background: var(--accent-soft);

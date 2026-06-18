@@ -10,28 +10,10 @@ from urllib.parse import urlparse
 
 from app.config import YTDLP_BASE_OPTS
 from app.services.platform import detect_platform
+from app.services.source_store import source_store
 
-VIP_PARSE_SOURCES = [
-    {"id": "fongmi", "name": "默认A", "url": "https://json.fongmi.cc/web?url="},
-    {"id": "playr", "name": "默认B", "url": "https://super.playr.top/?url="},
-    {"id": "nodenode", "name": "Node解析", "url": "https://jx.nodenode.dpdns.org/?url="},
-    {"id": "ckplayer", "name": "CK解析", "url": "https://www.ckplayer.vip/jiexi/?url="},
-    {"id": "playerjy", "name": "Player-JY", "url": "https://jx.playerjy.com/?url="},
-    {"id": "xmflv", "name": "虾米解析", "url": "https://jx.xmflv.com/?url="},
-    {"id": "789", "name": "789解析", "url": "https://jiexi.789jiexi.icu:4433/?url="},
-    {"id": "937", "name": "937解析", "url": "https://bfq.937auth.vip?url="},
-    {"id": "hls", "name": "HLS解析", "url": "https://jx.hls.one/?url="},
-    {"id": "speed", "name": "极速解析", "url": "https://jx.2s0.cn/player/?url="},
-    {"id": "bingdou", "name": "冰豆解析", "url": "https://bd.jx.cn/?url="},
-    {"id": "pouyun", "name": "剖元解析", "url": "https://www.pouyun.com/?url="},
-    {"id": "973", "name": "973解析", "url": "https://jx.973973.xyz/?url="},
-    {"id": "qige", "name": "七哥解析", "url": "https://jx.nnxv.cn/tv.php?url="},
-    {"id": "playm3u8", "name": "playm3u8", "url": "https://www.playm3u8.cn/jiexi.php?url="},
-    {"id": "qiqi", "name": "七七云解析", "url": "https://jx.77flv.cc/?url="},
-    {"id": "mango", "name": "芒果TV1", "url": "https://video.isyour.love/player/getplayer?url="},
-    {"id": "m1907", "name": "M1907", "url": "https://im1907.top/?jx="},
-    {"id": "yparse", "name": "Yparse", "url": "https://jx.yparse.com/index.php?url="},
-]
+# 注：VIP 解析源已迁移到 source_store（JSON 持久化，管理端可增删改查）。
+# 下面保留的常量仅作 host 白名单用途。
 
 VIP_SUPPORTED_HOSTS = (
     "bilibili.com",
@@ -73,26 +55,29 @@ def get_vip_sources_for_url(url: str) -> list[dict]:
             **source,
             "preview_url": source["url"] + urllib.parse.quote(url, safe=""),
         }
-        for source in VIP_PARSE_SOURCES
+        for source in source_store.list_enabled()
     ]
 
 
 def get_vip_sources() -> list[dict]:
-    return [dict(source) for source in VIP_PARSE_SOURCES]
+    return source_store.list_enabled()
 
 
-def get_source(source_id: str | None = None) -> dict:
+def get_source(source_id: str | None = None) -> dict | None:
+    enabled = source_store.list_enabled()
     if source_id:
-        for source in VIP_PARSE_SOURCES:
+        for source in enabled:
             if source["id"] == source_id:
                 return source
-    return VIP_PARSE_SOURCES[0]
+    return enabled[0] if enabled else None
 
 
 def build_vip_preview_url(url: str, source_id: str | None = None) -> str | None:
     if not is_vip_supported_url(url):
         return None
     source = get_source(source_id)
+    if not source:
+        return None
     return source["url"] + urllib.parse.quote(url, safe="")
 
 
@@ -138,9 +123,11 @@ def extract_vip_direct_media(url: str, source_id: str | None = None) -> dict | N
     """
     from app.services.stream_capture import capture_media
 
-    source_ids = [source_id] if source_id else [source["id"] for source in VIP_PARSE_SOURCES]
+    source_ids = [source_id] if source_id else [s["id"] for s in source_store.list_enabled()]
     for sid in filter(None, source_ids):
         source = get_source(sid)
+        if not source:
+            continue
         parser_url = build_vip_preview_url(url, source["id"])
         if not parser_url:
             continue

@@ -8,8 +8,23 @@ export const useAppStore = defineStore('app', () => {
   const history = ref([])
   const historyDrawerOpen = ref(false)
   const parsing = ref(false)
+  const user = ref(null)
+  const token = ref(localStorage.getItem('token') || '')
 
   const isDark = computed(() => theme.value === 'dark')
+  const isLoggedIn = computed(() => !!token.value && !!user.value)
+  const isAdmin = computed(() => user.value?.role === 'admin')
+
+  function setAuth(tk, usr) {
+    token.value = tk || ''
+    user.value = usr || null
+    if (tk) localStorage.setItem('token', tk)
+    else localStorage.removeItem('token')
+  }
+
+  function logout() {
+    setAuth('', null)
+  }
 
   function toggleTheme() {
     theme.value = theme.value === 'light' ? 'dark' : 'light'
@@ -54,6 +69,12 @@ export const useAppStore = defineStore('app', () => {
     history,
     historyDrawerOpen,
     parsing,
+    user,
+    token,
+    isLoggedIn,
+    isAdmin,
+    setAuth,
+    logout,
     toggleTheme,
     setVideoInfo,
     setParsing,

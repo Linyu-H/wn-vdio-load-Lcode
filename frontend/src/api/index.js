@@ -17,6 +17,92 @@ async function parseJsonResponse(res) {
 }
 
 export const api = {
+  authHeaders() {
+    const token = localStorage.getItem('token')
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  },
+
+  // ── 账号 ──
+  async register(username, password) {
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    })
+    return parseJsonResponse(res)
+  },
+
+  async login(username, password) {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    })
+    return parseJsonResponse(res)
+  },
+
+  async me() {
+    const res = await fetch(`${API_BASE}/api/auth/me`, { headers: this.authHeaders() })
+    return parseJsonResponse(res)
+  },
+
+  // ── VIP 自动解析 + 上下集 ──
+  async resolveVip(url) {
+    const res = await fetch(`${API_BASE}/api/vip/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    })
+    return parseJsonResponse(res)
+  },
+
+  async reportVipFailure(sourceId) {
+    try {
+      await fetch(`${API_BASE}/api/vip/report-failure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_id: sourceId })
+      })
+    } catch { /* 静默 */ }
+  },
+
+  async getEpisodes(url) {
+    const res = await fetch(`${API_BASE}/api/episodes?url=${encodeURIComponent(url)}`)
+    return parseJsonResponse(res)
+  },
+
+  // ── 管理端源 CRUD ──
+  async adminListSources() {
+    const res = await fetch(`${API_BASE}/api/admin/sources`, { headers: this.authHeaders() })
+    return parseJsonResponse(res)
+  },
+
+  async adminAddSource(name, url, enabled = true) {
+    const res = await fetch(`${API_BASE}/api/admin/sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ name, url, enabled })
+    })
+    return parseJsonResponse(res)
+  },
+
+  async adminUpdateSource(id, fields) {
+    const res = await fetch(`${API_BASE}/api/admin/sources/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify(fields)
+    })
+    return parseJsonResponse(res)
+  },
+
+  async adminDeleteSource(id) {
+    const res = await fetch(`${API_BASE}/api/admin/sources/${id}`, {
+      method: 'DELETE',
+      headers: this.authHeaders()
+    })
+    return parseJsonResponse(res)
+  },
+
   async parseInfo(url, options = {}) {
     const { forceVip = false } = options
     const res = await fetch(`${API_BASE}/api/info`, {
