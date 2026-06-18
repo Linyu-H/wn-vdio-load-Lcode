@@ -28,6 +28,8 @@ from app.services.vip_parser import enrich_info, extract_vip_direct_media
 # 思路：优先取 <= 目标高度的最佳视频 + 最佳音频，回退到 best
 _QUALITY_FORMATS = {
     "audio": "bestaudio/best",
+    "240": "bestvideo[height<=240]+bestaudio/best[height<=240]/best",
+    "360": "bestvideo[height<=360]+bestaudio/best[height<=360]/best",
     "480": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
     "720": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
     "1080": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
@@ -61,6 +63,14 @@ def _is_bilibili_url(url: str) -> bool:
         return False
 
 
+def _is_youtube_url(url: str) -> bool:
+    try:
+        host = (urlparse(url.strip()).netloc or "").lower()
+    except ValueError:
+        return False
+    return "youtube.com" in host or "youtu.be" in host
+
+
 def _ydlp_opts_for(url: str) -> dict:
     """复制通用 yt-dlp 配置，并按平台补充最小必要选项。"""
     opts = dict(YTDLP_BASE_OPTS)
@@ -75,6 +85,13 @@ def _ydlp_opts_for(url: str) -> dict:
             "Origin": _BILIBILI_ORIGIN,
             "Referer": url,
         })
+
+    if _is_youtube_url(url):
+        # YouTube 强制 SABR + 频繁改播放器签名，单一 web 客户端常拿不到带 URL 的格式。
+        # 多客户端兜底（tv/ios/android/web_safari），最大化可用格式。
+        opts["extractor_args"] = {
+            "youtube": {"player_client": ["tv", "ios", "android", "web_safari", "default"]}
+        }
 
     return opts
 
@@ -154,7 +171,10 @@ def has_embeddable_preview(url: str, info: dict) -> bool:
 
 
 def _human_quality_list(info: dict) -> list[dict]:
-    """从 yt-dlp formats 提炼出去重的可下载画质列表，供前端可视化选择。"""
+    """从 yt-dlp formats 提炼出去重的可下载画质列表，供前端可视化选择。
+
+    按实际可用分辨率生成档位（含低清 240/360），避免低清视频无任何视频档位可选。
+    """
     heights = set()
     has_audio_only = False
     for f in info.get("formats", []) or []:
@@ -164,23 +184,26 @@ def _human_quality_list(info: dict) -> list[dict]:
         elif f.get("acodec") not in (None, "none") and f.get("vcodec") in (None, "none"):
             has_audio_only = True
 
-    # 映射到标准档位
     available = []
     if has_audio_only or info.get("formats"):
         available.append({"id": "audio", "label": "纯音频", "height": 0})
+
+    max_h = max(heights) if heights else 0
+    # 仅提供 <= 实际最高分辨率的标准档位（含 240/360）
     for height, qid, label in [
+        (240, "240", "240P"),
+        (360, "360", "360P"),
         (480, "480", "480P"),
         (720, "720", "720P"),
         (1080, "1080", "1080P"),
         (2160, "4k", "4K"),
     ]:
-        # 只要存在 >= 该档位附近的源就提供该档(<=逻辑会自动回退)
-        if any(hh >= height - 80 for hh in heights):
+        if max_h >= height - 40:
             available.append({"id": qid, "label": label, "height": height})
 
     # 至少保证有一个可选项
-    if not available:
-        available = [{"id": "720", "label": "默认", "height": 720}]
+    if len(available) <= 1 and max_h == 0:
+        available.append({"id": "720", "label": "默认", "height": 720})
     return available
 
 
