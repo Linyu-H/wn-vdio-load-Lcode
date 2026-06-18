@@ -320,6 +320,21 @@ function getDownloadUrl(taskId) {
   gap: 20px;
 }
 
+.video-info > * {
+  animation: rise 0.5s var(--ease-out) both;
+}
+.video-info > *:nth-child(1) { animation-delay: 0.02s; }
+.video-info > *:nth-child(2) { animation-delay: 0.08s; }
+.video-info > *:nth-child(3) { animation-delay: 0.14s; }
+.video-info > *:nth-child(4) { animation-delay: 0.20s; }
+.video-info > *:nth-child(5) { animation-delay: 0.26s; }
+.video-info > *:nth-child(6) { animation-delay: 0.32s; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .site-header {
   display: flex;
   align-items: center;
@@ -480,12 +495,17 @@ function getDownloadUrl(taskId) {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease), transform var(--dur) var(--ease-spring);
 }
 
 .chip:hover {
   border-color: var(--border-strong);
   color: var(--text-primary);
+  transform: translateY(-2px);
 }
+
+.chip:active { transform: translateY(0); }
 
 .chip.active {
   background: var(--accent-soft);

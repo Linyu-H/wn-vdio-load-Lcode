@@ -7,6 +7,7 @@ export const useAppStore = defineStore('app', () => {
   const currentTask = ref(null)
   const history = ref([])
   const historyDrawerOpen = ref(false)
+  const parsing = ref(false)
 
   const isDark = computed(() => theme.value === 'dark')
 
@@ -18,6 +19,10 @@ export const useAppStore = defineStore('app', () => {
 
   function setVideoInfo(info) {
     videoInfo.value = info
+  }
+
+  function setParsing(val) {
+    parsing.value = val
   }
 
   function setCurrentTask(task) {
@@ -48,8 +53,10 @@ export const useAppStore = defineStore('app', () => {
     currentTask,
     history,
     historyDrawerOpen,
+    parsing,
     toggleTheme,
     setVideoInfo,
+    setParsing,
     setCurrentTask,
     addHistory,
     setHistory,

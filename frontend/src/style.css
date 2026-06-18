@@ -14,47 +14,47 @@
 }
 
 :root {
-  /* ── 品牌色：祖母绿 ── */
-  --brand-50:  #ecfdf5;
-  --brand-100: #d1fae5;
-  --brand-300: #6ee7b7;
-  --brand-400: #34d399;
-  --brand-500: #10b981;
-  --brand-600: #059669;
-  --brand-700: #047857;
+  /* ── 品牌色：天蓝 ── */
+  --brand-50:  #eff6ff;
+  --brand-100: #dbeafe;
+  --brand-300: #93c5fd;
+  --brand-400: #60a5fa;
+  --brand-500: #3b82f6;
+  --brand-600: #2563eb;
+  --brand-700: #1d4ed8;
 
-  /* ── 中性色：石板灰（浅色模式映射） ── */
-  --bg-app:        #f4f6f8;
-  --bg-app-accent: #eef1f4;
+  /* ── 中性色：浅蓝白（浅色模式映射） ── */
+  --bg-app:        #f0f6ff;
+  --bg-app-accent: #e7f0fd;
   --bg-card:       #ffffff;
-  --bg-subtle:     #f6f8fa;
-  --bg-inset:      #eceff2;
-  --bg-hover:      #f0f3f5;
+  --bg-subtle:     #f4f8fe;
+  --bg-inset:      #e9f1fc;
+  --bg-hover:      #eef4fe;
 
-  --text-primary:   #0f1729;
-  --text-secondary: #5b6573;
-  --text-tertiary:  #8a93a0;
+  --text-primary:   #0f1f3d;
+  --text-secondary: #51607a;
+  --text-tertiary:  #8593ac;
   --text-on-brand:  #ffffff;
 
-  --border:        #e3e8ee;
-  --border-strong: #d2d9e1;
+  --border:        #dde8f7;
+  --border-strong: #c7d6ec;
 
   --accent:        var(--brand-600);
   --accent-hover:  var(--brand-500);
   --accent-soft:   var(--brand-50);
-  --accent-ring:   rgba(5, 150, 105, 0.18);
-  --accent-gradient: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  --accent-ring:   rgba(37, 99, 235, 0.16);
+  --accent-gradient: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
 
   --danger:      #e5484d;
   --danger-soft: #fdecec;
   --warning:     #f5a623;
 
-  /* ── 层级阴影（柔和、多层） ── */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 41, 0.04);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 41, 0.06), 0 1px 2px rgba(15, 23, 41, 0.04);
-  --shadow-md: 0 4px 12px rgba(15, 23, 41, 0.06), 0 2px 4px rgba(15, 23, 41, 0.04);
-  --shadow-lg: 0 12px 32px rgba(15, 23, 41, 0.10), 0 4px 8px rgba(15, 23, 41, 0.05);
-  --shadow-xl: 0 24px 56px rgba(15, 23, 41, 0.16);
+  /* ── 层级阴影（柔和、多层、偏蓝） ── */
+  --shadow-xs: 0 1px 2px rgba(15, 35, 80, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 35, 80, 0.06), 0 1px 2px rgba(15, 35, 80, 0.04);
+  --shadow-md: 0 4px 14px rgba(15, 35, 80, 0.07), 0 2px 4px rgba(15, 35, 80, 0.04);
+  --shadow-lg: 0 14px 38px rgba(15, 35, 80, 0.12), 0 4px 10px rgba(15, 35, 80, 0.06);
+  --shadow-xl: 0 28px 64px rgba(15, 35, 80, 0.18);
 
   /* ── 圆角 ── */
   --radius-xs: 6px;
@@ -71,29 +71,30 @@
   /* ── 动效曲线 ── */
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --dur: 0.18s;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur: 0.2s;
 }
 
 [data-theme="dark"] {
-  --bg-app:        #0a0e14;
-  --bg-app-accent: #0d1218;
-  --bg-card:       #131922;
-  --bg-subtle:     #1a212c;
-  --bg-inset:      #0f141b;
-  --bg-hover:      #1e2630;
+  --bg-app:        #070d1a;
+  --bg-app-accent: #0a1120;
+  --bg-card:       #101a2e;
+  --bg-subtle:     #16223a;
+  --bg-inset:      #0c1424;
+  --bg-hover:      #1b2945;
 
-  --text-primary:   #eef1f5;
-  --text-secondary: #9aa4b2;
-  --text-tertiary:  #6b7585;
+  --text-primary:   #eaf1fb;
+  --text-secondary: #9aabc6;
+  --text-tertiary:  #6878a0;
   --text-on-brand:  #ffffff;
 
-  --border:        #232c38;
-  --border-strong: #303b4a;
+  --border:        #233252;
+  --border-strong: #314563;
 
-  --accent:        var(--brand-500);
-  --accent-hover:  var(--brand-400);
-  --accent-soft:   rgba(16, 185, 129, 0.12);
-  --accent-ring:   rgba(16, 185, 129, 0.25);
+  --accent:        var(--brand-400);
+  --accent-hover:  var(--brand-300);
+  --accent-soft:   rgba(59, 130, 246, 0.14);
+  --accent-ring:   rgba(96, 165, 250, 0.28);
 
   --danger-soft: rgba(229, 72, 77, 0.14);
 
@@ -104,6 +105,8 @@
   --shadow-xl: 0 28px 60px rgba(0, 0, 0, 0.7);
 }
 
+html { scroll-behavior: smooth; }
+
 body {
   font-family: var(--font-sans);
   background: var(--bg-app);
@@ -113,7 +116,16 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background 0.35s var(--ease), color 0.35s var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 #app { min-height: 100vh; }

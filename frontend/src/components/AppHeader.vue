@@ -2,11 +2,8 @@
   <header class="app-header">
     <div class="header-inner">
       <div class="header-left">
-        <VideoLogo />
-        <div class="brand-text">
-          <span class="brand-name">vdio</span>
-          <span class="brand-sub">视频解析下载平台</span>
-        </div>
+        <span class="brand-mark">avl</span>
+        <span class="brand-name">analyze vdio loader <span class="brand-code">Lcode</span></span>
       </div>
 
       <div class="header-right">
@@ -24,7 +21,6 @@
 <script setup>
 import { computed } from 'vue'
 import { useAppStore } from '../stores/app'
-import VideoLogo from './VideoLogo.vue'
 import Icon from './Icon.vue'
 
 const store = useAppStore()
@@ -44,16 +40,16 @@ function toggleHistory() {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-app) 72%, transparent);
   backdrop-filter: saturate(180%) blur(16px);
   -webkit-backdrop-filter: saturate(180%) blur(16px);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 
 .header-inner {
-  max-width: 1600px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 14px 32px;
+  padding: 12px 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -62,28 +58,32 @@ function toggleHistory() {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 10px;
 }
 
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-gradient);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  box-shadow: var(--shadow-xs);
 }
 
 .brand-name {
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-secondary);
 }
 
-.brand-sub {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-  letter-spacing: 0.01em;
-}
+.brand-code { color: var(--text-tertiary); }
 
 .header-right {
   display: flex;
@@ -110,8 +110,8 @@ function toggleHistory() {
 
 .icon-btn:active { transform: translateY(1px); }
 
-@media (max-width: 768px) {
-  .header-inner { padding: 12px 18px; }
-  .brand-sub { display: none; }
+@media (max-width: 640px) {
+  .header-inner { padding: 10px 16px; }
+  .brand-name { display: none; }
 }
 </style>
