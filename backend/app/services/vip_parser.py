@@ -131,19 +131,37 @@ def enrich_info(url: str, data: dict) -> dict:
 
 
 def extract_vip_direct_media(url: str, source_id: str | None = None) -> dict | None:
-    """从 VIP 解析页尽力提取 m3u8/mp4 直链。失败返回 None。"""
+    """从 VIP 解析页尽力提取 m3u8/mp4 直链。失败返回 None。
+
+    优先用无头浏览器拦截播放器实际请求的直链（应对 JS 动态加载/混淆），
+    拿不到再回退到静态 HTML 正则爬取。
+    """
+    from app.services.stream_capture import capture_media
+
     source_ids = [source_id] if source_id else [source["id"] for source in VIP_PARSE_SOURCES]
     for sid in filter(None, source_ids):
         source = get_source(sid)
         parser_url = build_vip_preview_url(url, source["id"])
         if not parser_url:
             continue
+
+        # 1) 无头浏览器抓真实直链（最可靠）
+        captured = capture_media(parser_url)
+        if captured and captured.get("url"):
+            return {
+                "url": captured["url"],
+                "source": source,
+                "parser_url": parser_url,
+                "headers": captured.get("headers") or {},
+            }
+
+        # 2) 回退：静态 HTML 正则
         html = _fetch_text(parser_url)
         candidates = _extract_candidates(html, parser_url)
         if not candidates:
             candidates = _extract_candidates(_try_ydlp_dump(parser_url), parser_url)
         if candidates:
-            return {"url": candidates[0], "source": source, "parser_url": parser_url}
+            return {"url": candidates[0], "source": source, "parser_url": parser_url, "headers": {}}
     return None
 
 

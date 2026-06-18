@@ -275,6 +275,10 @@ def download(
         vip_opts = _ydlp_opts_for(direct["url"])
         vip_opts["outtmpl"] = str(out_dir / "%(title).80s-%(id)s.%(ext)s")
         vip_opts["noplaylist"] = True
+        # 带上抓流阶段截到的请求头（部分 CDN 校验 Referer/Origin）
+        captured_headers = direct.get("headers") or {}
+        if captured_headers:
+            vip_opts["http_headers"] = {**vip_opts.get("http_headers", {}), **captured_headers}
         if audio_only or quality == "audio":
             vip_opts["format"] = _QUALITY_FORMATS["audio"]
             vip_opts["postprocessors"] = [{
