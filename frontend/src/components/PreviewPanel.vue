@@ -29,6 +29,9 @@
         <span v-if="videoInfo.vip_supported" class="vip-badge">
           <Icon name="bolt" :size="13" /> VIP 解析
         </span>
+        <span v-else-if="videoInfo.webpage_fallback" class="vip-badge webpage-badge">
+          <Icon name="external" :size="13" /> 网页预览
+        </span>
         <span v-if="videoInfo.playlist_count > 0" class="playlist-badge">
           <Icon name="layers" :size="13" /> {{ videoInfo.playlist_count }}
         </span>
@@ -80,6 +83,12 @@
         </button>
       </div>
 
+      <div v-if="videoInfo.webpage_fallback" class="auto-line webpage-line">
+        <span class="line-state ok">
+          <Icon name="external" :size="13" /> 已启用网页内嵌预览，下载时会尝试捕获视频流
+        </span>
+      </div>
+
       <div v-if="videoInfo.vip_supported" class="auto-line">
         <span v-if="resolving" class="line-state">
           <span class="mini-spinner"></span> 正在为你自动匹配线路…
@@ -126,7 +135,7 @@
           :disabled="downloading"
         >
           <Icon name="download" :size="16" />
-          {{ downloading ? '下载中…' : (videoInfo.vip_supported ? 'VIP 下载' : '下载视频') }}
+          {{ downloading ? '下载中…' : (videoInfo.vip_supported ? 'VIP 下载' : (videoInfo.webpage_fallback ? '捕获下载' : '下载视频')) }}
         </button>
         <button
           @click="startDownload(true)"

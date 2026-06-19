@@ -112,6 +112,9 @@ async def info(
         if is_vip_supported_url(url):
             logger.info("parse_info exception fallback_vip url=%s", url)
             return {"code": 0, "data": build_vip_info(url, reason)}
+        if not is_timeout and downloader.is_unsupported_url_error(e):
+            logger.info("parse_info unsupported fallback_webpage url=%s", url)
+            return {"code": 0, "data": downloader.build_webpage_info(url, reason)}
         raise HTTPException(504 if is_timeout else 400, detail=f"解析失败: {reason}") from e
 
     return {"code": 0, "data": data}

@@ -28,7 +28,7 @@ import yt_dlp
 from app.config import DOWNLOAD_DIR, YT_COOKIES_FILE, YTDLP_BASE_OPTS, get_proxy
 from app.services.cookie_store import cookie_store
 from app.services.platform import detect_platform
-from app.services.vip_parser import enrich_info, extract_vip_direct_media
+from app.services.vip_parser import enrich_info, extract_vip_direct_media, extract_webpage_direct_media, is_vip_supported_url
 
 logger = logging.getLogger("vdio.downloader")
 
@@ -343,6 +343,47 @@ def _site_logo_url(url: str) -> str | None:
     if not origin:
         return None
     return f"{origin}/favicon.ico"
+
+
+def is_unsupported_url_error(exc: Exception) -> bool:
+    """判断 yt-dlp 是否明确表示不支持该网页 URL。"""
+    msg = str(exc).lower()
+    return "unsupported url" in msg or "no suitable extractor" in msg
+
+
+def _host_display_name(url: str) -> str:
+    try:
+        host = (urlparse(url.strip()).netloc or "").lower()
+    except ValueError:
+        host = ""
+    return host[4:] if host.startswith("www.") else (host or "网页视频")
+
+
+def build_webpage_info(url: str, error: str | None = None) -> dict:
+    """yt-dlp 不支持的普通网页：允许前端 iframe 预览，并在下载时抓流。"""
+    platform = detect_platform(url)
+    name = _host_display_name(url)
+    return {
+        "url": url,
+        "title": name,
+        "thumbnail": None,
+        "duration": None,
+        "uploader": None,
+        "platform": platform["platform"],
+        "platform_name": name if platform["platform"] == "unknown" else platform["name"],
+        "site_logo": _site_logo_url(url),
+        "preview_url": url,
+        "webpage_fallback": True,
+        "webpage_parse_error": error,
+        "vip_supported": False,
+        "vip_preview_url": None,
+        "vip_parse_sources": [],
+        "qualities": [
+            {"id": "720", "label": "默认", "height": 720},
+            {"id": "1080", "label": "1080P", "height": 1080},
+        ],
+        "playlist_count": 0,
+    }
 
 
 def _bilibili_embed_url(url: str) -> str | None:
@@ -684,9 +725,11 @@ def download(
         # 避免被覆盖成 "VIP 解析源没有提取到可下载直链" 的误导提示。
         if is_yt or _is_twitter_url(url):
             raise
-        direct = extract_vip_direct_media(url, vip_source_id)
+        direct = extract_vip_direct_media(url, vip_source_id) if (vip_source_id or is_vip_supported_url(url)) else None
         if not direct:
-            raise RuntimeError("VIP 解析源没有提取到可下载直链，请切换解析源后重试") from original_error
+            direct = extract_webpage_direct_media(url)
+        if not direct:
+            raise RuntimeError("未从该网页捕获到可下载视频流，请先在预览中播放几秒或换一个页面") from original_error
         vip_opts = _ydlp_opts_for(direct["url"])
         vip_opts["outtmpl"] = str(out_dir / "%(title).80s-%(id)s.%(ext)s")
         vip_opts["noplaylist"] = True

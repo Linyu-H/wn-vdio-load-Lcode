@@ -152,6 +152,26 @@ def extract_vip_direct_media(url: str, source_id: str | None = None) -> dict | N
     return None
 
 
+def extract_webpage_direct_media(url: str) -> dict | None:
+    """从普通网页尽力提取 m3u8/mp4 直链。失败返回 None。"""
+    from app.services.stream_capture import capture_media
+
+    captured = capture_media(url)
+    if captured and captured.get("url"):
+        return {
+            "url": captured["url"],
+            "source": None,
+            "parser_url": url,
+            "headers": captured.get("headers") or {},
+        }
+
+    html = _fetch_text(url)
+    candidates = _extract_candidates(html, url)
+    if candidates:
+        return {"url": candidates[0], "source": None, "parser_url": url, "headers": {}}
+    return None
+
+
 def _favicon_url(url: str) -> str | None:
     try:
         parsed = urlparse(url)
