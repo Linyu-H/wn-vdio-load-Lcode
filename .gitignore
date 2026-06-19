@@ -16,9 +16,18 @@ backend/downloads/
 backend/history.json
 backend/vip_sources.json
 backend/users.json
+backend/.auth_secret
 *.log
+backend/logs/
+
+# Cookie（含登录态，严禁提交）
+backend/youtube_cookies.txt
+backend/cookies/
 
 # 系统/IDE
 .DS_Store
 .idea/
 .vscode/
+
+# 代理配置(本地)
+backend/proxy.txt

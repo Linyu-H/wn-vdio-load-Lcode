@@ -20,10 +20,18 @@ from app.api.history import history_manager
 from app.services.auth import auth_manager, verify_token
 from app.services.source_store import source_store
 from app.services.source_health import source_health
+from app.services.cookie_store import cookie_store
 from app.services.episodes import get_episodes
+from app.services.offload import run_blocking
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger("vdio.api")
+
+# 阻塞型操作的超时上限（秒），到点不再等待，按失败/降级处理，避免请求悬挂。
+# YouTube 走 fail-fast：连不上时约 15~20s 内带"配置代理"提示返回，无需等满。
+PARSE_TIMEOUT = 45
+RESOLVE_TIMEOUT = 40
+EPISODES_TIMEOUT = 45
 
 
 # ──────────────────────────────────────────────────────────────
@@ -76,7 +84,9 @@ async def info(
         return {"code": 0, "data": data}
 
     try:
-        data = downloader.extract_info(url)
+        # 阻塞型解析(yt-dlp + 取站点图标)丢到 daemon 线程池，避免卡死事件循环；
+        # 超时按失败处理（VIP 站点回退解析源，普通站点返回 504）。
+        data = await run_blocking(downloader.extract_info, url, timeout=PARSE_TIMEOUT)
         has_embed = downloader.has_embeddable_preview(url, data)
         logger.info(
             "parse_info normal ok url=%s platform=%s preview=%s has_embed=%s vip_supported=%s",
@@ -97,10 +107,12 @@ async def info(
             data["vip_parse_sources"] = []
     except Exception as e:
         logger.exception("parse_info normal failed url=%s", url)
+        is_timeout = isinstance(e, asyncio.TimeoutError)
+        reason = "解析超时，请重试" if is_timeout else (str(e)[:200] or "解析失败")
         if is_vip_supported_url(url):
             logger.info("parse_info exception fallback_vip url=%s", url)
-            return {"code": 0, "data": build_vip_info(url, str(e)[:200])}
-        raise HTTPException(400, detail=f"解析失败: {str(e)[:200]}") from e
+            return {"code": 0, "data": build_vip_info(url, reason)}
+        raise HTTPException(504 if is_timeout else 400, detail=f"解析失败: {reason}") from e
 
     return {"code": 0, "data": data}
 
@@ -194,13 +206,7 @@ async def clear_history():
 #  账号系统
 # ──────────────────────────────────────────────────────────────
 
-@router.post("/auth/register")
-async def register(username: str = Body(...), password: str = Body(...)):
-    try:
-        user = auth_manager.register(username, password)
-    except ValueError as e:
-        raise HTTPException(400, detail=str(e))
-    return {"code": 0, "data": user}
+# 公开注册已下线：仅管理员账号（环境变量种子）用于后台维护，无普通用户体系。
 
 
 @router.post("/auth/login")
@@ -229,16 +235,21 @@ async def vip_resolve(url: str = Body(..., embed=True)):
     sources = get_vip_sources_for_url(url)
     if not sources:
         return {"code": 0, "data": {"sources": [], "best": None}}
-    ranked = await asyncio.to_thread(source_health.rank, sources, url)
+    try:
+        ranked = await run_blocking(source_health.rank, sources, url, timeout=RESOLVE_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.warning("vip_resolve probe timeout url=%s", url)
+        ranked = sources  # 探测超时：退回未排序源，至少保证可用
     best = next((s for s in ranked if s.get("healthy")), ranked[0] if ranked else None)
     return {"code": 0, "data": {"sources": ranked, "best": best}}
 
 
 @router.post("/vip/report-failure")
 async def vip_report_failure(source_id: str = Body(..., embed=True)):
-    """前端反馈某源播放失败，累计熔断。"""
+    """前端反馈某源播放失败：直接禁用该源，以后解析不再使用（熔断）。"""
     source_health.report_failure(source_id)
-    return {"code": 0, "msg": "已记录"}
+    source_store.update(source_id, enabled=False)
+    return {"code": 0, "msg": "已禁用该源"}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -249,7 +260,11 @@ async def vip_report_failure(source_id: str = Body(..., embed=True)):
 async def episodes(url: str = Query(...)):
     if not is_valid_url(url):
         raise HTTPException(400, detail="链接格式无效")
-    data = await asyncio.to_thread(get_episodes, url)
+    try:
+        data = await run_blocking(get_episodes, url, timeout=EPISODES_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.warning("episodes timeout url=%s", url)
+        data = {"episodes": [], "current_index": -1}
     return {"code": 0, "data": data}
 
 
@@ -295,3 +310,47 @@ async def admin_delete_source(source_id: str, _: dict = Depends(require_admin)):
     if not source_store.delete(source_id):
         raise HTTPException(404, detail="解析源不存在")
     return {"code": 0, "msg": "已删除"}
+
+
+# ──────────────────────────────────────────────────────────────
+#  管理端：多平台 Cookie 管理（需 admin）
+#  cookie 是可选增强：很多平台无 cookie 也能下载；配置后解锁登录内容/高清。
+# ──────────────────────────────────────────────────────────────
+
+@router.get("/admin/cookies")
+async def admin_list_cookies(_: dict = Depends(require_admin)):
+    """各平台 cookie 状态（仅元信息，不回显明文）。"""
+    return {"code": 0, "data": cookie_store.list_all()}
+
+
+@router.put("/admin/cookies/{platform}")
+async def admin_set_cookie(
+    platform: str,
+    content: str = Body(..., embed=True),
+    _: dict = Depends(require_admin),
+):
+    """保存某平台 cookie。content 支持浏览器扩展导出的 JSON 数组或 Netscape 文本，自动识别。"""
+    try:
+        meta = cookie_store.save(platform, content)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    return {"code": 0, "data": meta}
+
+
+@router.patch("/admin/cookies/{platform}")
+async def admin_toggle_cookie(
+    platform: str,
+    enabled: bool = Body(..., embed=True),
+    _: dict = Depends(require_admin),
+):
+    meta = cookie_store.set_enabled(platform, enabled)
+    if not meta:
+        raise HTTPException(404, detail="该平台尚未配置 cookie")
+    return {"code": 0, "data": meta}
+
+
+@router.delete("/admin/cookies/{platform}")
+async def admin_delete_cookie(platform: str, _: dict = Depends(require_admin)):
+    if not cookie_store.delete(platform):
+        raise HTTPException(404, detail="该平台尚未配置 cookie")
+    return {"code": 0, "msg": "已清除该平台 cookie"}

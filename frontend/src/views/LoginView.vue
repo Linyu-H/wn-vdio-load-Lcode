@@ -9,7 +9,6 @@ const store = useAppStore()
 const router = useRouter()
 const route = useRoute()
 
-const mode = ref('login') // login | register
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
@@ -23,15 +22,11 @@ async function submit() {
   }
   loading.value = true
   try {
-    if (mode.value === 'register') {
-      const reg = await api.register(username.value.trim(), password.value)
-      if (reg.code !== 0) throw new Error(reg.detail || reg.msg || '注册失败')
-    }
     const res = await api.login(username.value.trim(), password.value)
     if (res.code !== 0) throw new Error(res.detail || res.msg || '登录失败')
+    if (res.data.role !== 'admin') throw new Error('该账号无管理权限')
     store.setAuth(res.data.token, { username: res.data.username, role: res.data.role })
-    const redirect = route.query.redirect || (res.data.role === 'admin' ? '/admin' : '/')
-    router.push(redirect)
+    router.push(route.query.redirect || '/admin')
   } catch (err) {
     error.value = err.message || '操作失败'
   } finally {
@@ -45,13 +40,8 @@ async function submit() {
     <div class="auth-card card">
       <div class="auth-head">
         <div class="auth-mark"><Icon name="shield" :size="22" /></div>
-        <h1>{{ mode === 'login' ? '登录' : '注册账号' }}</h1>
-        <p>analyze vdio loader Lcode</p>
-      </div>
-
-      <div class="tabs">
-        <button :class="{ active: mode === 'login' }" @click="mode = 'login'; error = ''">登录</button>
-        <button :class="{ active: mode === 'register' }" @click="mode = 'register'; error = ''">注册</button>
+        <h1>管理员登录</h1>
+        <p>仅供后台维护 · analyze vdio loader Lcode</p>
       </div>
 
       <form @submit.prevent="submit" class="auth-form">
@@ -68,7 +58,7 @@ async function submit() {
 
         <button type="submit" class="btn-primary submit" :disabled="loading">
           <span v-if="loading" class="spinner"></span>
-          {{ loading ? '处理中…' : (mode === 'login' ? '登录' : '注册并登录') }}
+          {{ loading ? '处理中…' : '登录' }}
         </button>
       </form>
 
@@ -117,28 +107,6 @@ async function submit() {
 
 .auth-head h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
 .auth-head p { font-size: 13px; color: var(--text-tertiary); margin: 4px 0 0; }
-
-.tabs {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--bg-inset);
-  border-radius: var(--radius-sm);
-}
-.tabs button {
-  flex: 1;
-  padding: 9px;
-  background: transparent;
-  border-radius: var(--radius-xs);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-.tabs button.active {
-  background: var(--bg-card);
-  color: var(--accent);
-  box-shadow: var(--shadow-xs);
-}
 
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
 

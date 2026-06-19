@@ -61,6 +61,18 @@
         </button>
       </div>
 
+      <div v-if="videoInfo.vip_supported" class="auto-line">
+        <span v-if="resolving" class="line-state">
+          <span class="mini-spinner"></span> 正在为你自动匹配线路…
+        </span>
+        <span v-else class="line-state ok">
+          <Icon name="bolt" :size="13" /> 自动线路 · {{ currentSourceName || '默认' }}
+        </span>
+        <button class="switch-src" @click="reportAndSwitch" :disabled="resolving" title="当前画面播不出？禁用并自动换下一条">
+          <Icon name="refresh" :size="13" /> 播不出？换线路
+        </button>
+      </div>
+
       <div class="info-content">
         <h3 class="video-title">{{ videoInfo.title }}</h3>
         <div class="meta-info">
@@ -71,35 +83,6 @@
             <Icon name="clock" :size="14" /> {{ formatDuration(videoInfo.duration) }}
           </span>
         </div>
-      </div>
-
-      <div v-if="videoInfo.vip_supported && displaySources.length" class="selector-group">
-        <div class="selector-head">
-          <span class="section-label">VIP 解析源</span>
-          <span v-if="resolving" class="resolve-state"><span class="mini-spinner"></span> 探测健康源…</span>
-          <span v-else-if="autoMode" class="resolve-state ok"><Icon name="bolt" :size="12" /> 自动选源</span>
-          <button class="switch-src" @click="reportAndSwitch" title="当前源播放失败？换下一个">
-            <Icon name="refresh" :size="13" /> 播放失败，换源
-          </button>
-        </div>
-        <div class="chip-row">
-          <button
-            v-for="source in displaySources"
-            :key="source.id"
-            @click="selectSource(source.id)"
-            class="chip"
-            :class="{ active: selectedVipSource === source.id, dead: source.healthy === false, healthy: source.healthy === true }"
-            :title="source.health ? `状态：${source.health}` : ''"
-          >
-            <span v-if="source.healthy === true" class="dot ok"></span>
-            <span v-else-if="source.healthy === false" class="dot bad"></span>
-            {{ source.name }}
-          </button>
-        </div>
-        <p class="hint">
-          <Icon name="alert" :size="13" />
-          绿点=可用，灰点=不可用（已自动排序）。当前源播不出时点「换源」。
-        </p>
       </div>
 
       <div class="selector-group">
@@ -218,6 +201,11 @@ const currentSourceHealthy = computed(() => {
   return s ? s.healthy : null
 })
 
+const currentSourceName = computed(() => {
+  const s = displaySources.value.find(item => item.id === selectedVipSource.value)
+  return s ? s.name : ''
+})
+
 watch(videoInfo, (newInfo) => {
   siteLogoBroken.value = false
   rankedSources.value = []
@@ -280,22 +268,34 @@ async function gotoEpisode(idx) {
 function prevEpisode() { if (hasPrev.value) gotoEpisode(episodeIndex.value - 1) }
 function nextEpisode() { if (hasNext.value) gotoEpisode(episodeIndex.value + 1) }
 
-// 手动选源时关闭自动模式
+// 手动选源（已隐藏列表，保留以兼容）
 function selectSource(id) {
   selectedVipSource.value = id
   autoMode.value = false
 }
 
-// 用户反馈当前源播不了：上报熔断 + 自动切下一个健康源
-function reportAndSwitch() {
+// 用户反馈当前源播不了：禁用该源（后端熔断，以后不再用）+ 本地移除并切下一个
+async function reportAndSwitch() {
   const cur = selectedVipSource.value
-  if (cur) api.reportVipFailure(cur)
   const list = displaySources.value
   const curIdx = list.findIndex(s => s.id === cur)
-  const next = list[curIdx + 1]
+
+  if (cur) {
+    await api.reportVipFailure(cur)   // 后端将该源 enabled=false
+    // 本地把这个源剔除，避免再被选中
+    rankedSources.value = (rankedSources.value.length ? rankedSources.value : list)
+      .filter(s => s.id !== cur)
+    if (videoInfo.value?.vip_parse_sources) {
+      videoInfo.value.vip_parse_sources = videoInfo.value.vip_parse_sources.filter(s => s.id !== cur)
+    }
+  }
+
+  const remaining = displaySources.value
+  const next = remaining[curIdx] || remaining[0]   // 剔除后，原 curIdx 即下一个
   if (next) {
     selectedVipSource.value = next.id
   } else {
+    selectedVipSource.value = null
     alert('已尝试所有解析源，建议稍后重试或在管理端添加新源')
   }
 }
@@ -551,11 +551,19 @@ function getDownloadUrl(taskId) {
   border-radius: var(--radius);
   overflow: hidden;
   background: #000;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(37,99,235,0.06);
 }
 
-.iframe-preview { aspect-ratio: 16 / 9; }
+.iframe-preview { aspect-ratio: 16 / 9; position: relative; }
+.iframe-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 80px rgba(0,0,0,0.35);
+  pointer-events: none;
+}
 
 .iframe-preview iframe {
   width: 100%;
@@ -673,36 +681,42 @@ function getDownloadUrl(taskId) {
 .ep-current em { font-style: normal; color: var(--text-tertiary); font-weight: 500; }
 
 /* ── 源健康 + 自动选源 ── */
-.selector-head {
+.auto-line {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 9px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
-.resolve-state {
+.line-state {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-tertiary);
 }
-.resolve-state.ok { color: var(--accent); }
+.line-state.ok { color: var(--accent); }
 .switch-src {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 11px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-secondary);
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
 }
-.switch-src:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.switch-src:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.switch-src:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .mini-spinner {
-  width: 11px; height: 11px;
+  width: 12px; height: 12px;
   border: 2px solid var(--border-strong);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -710,22 +724,12 @@ function getDownloadUrl(taskId) {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.chip .dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-  margin-right: 5px;
-  vertical-align: middle;
-}
-.chip .dot.ok { background: var(--brand-500); }
-.chip .dot.bad { background: var(--text-tertiary); }
-.chip.dead { opacity: 0.55; }
-
 .chip.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--accent-gradient);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--glow-accent);
+  transform: translateY(-1px);
 }
 
 .hint {

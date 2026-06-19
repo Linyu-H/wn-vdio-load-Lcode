@@ -2,7 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
-  const theme = ref(localStorage.getItem('theme') || 'light')
+  const THEMES = ['light', 'eyecare', 'dark']
+  const storedTheme = localStorage.getItem('theme')
+  const theme = ref(THEMES.includes(storedTheme) ? storedTheme : 'light')
   const videoInfo = ref(null)
   const currentTask = ref(null)
   const history = ref([])
@@ -12,6 +14,7 @@ export const useAppStore = defineStore('app', () => {
   const token = ref(localStorage.getItem('token') || '')
 
   const isDark = computed(() => theme.value === 'dark')
+  const isEyecare = computed(() => theme.value === 'eyecare')
   const isLoggedIn = computed(() => !!token.value && !!user.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
 
@@ -26,10 +29,22 @@ export const useAppStore = defineStore('app', () => {
     setAuth('', null)
   }
 
-  function toggleTheme() {
-    theme.value = theme.value === 'light' ? 'dark' : 'light'
+  function applyTheme() {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme.value)
+    }
+  }
+
+  function setTheme(t) {
+    theme.value = THEMES.includes(t) ? t : 'light'
     localStorage.setItem('theme', theme.value)
-    document.documentElement.setAttribute('data-theme', theme.value)
+    applyTheme()
+  }
+
+  // 顺序循环：浅蓝(light) → 护眼(eyecare) → 深色(dark) → 浅蓝
+  function toggleTheme() {
+    const i = THEMES.indexOf(theme.value)
+    setTheme(THEMES[(i + 1) % THEMES.length])
   }
 
   function setVideoInfo(info) {
@@ -57,13 +72,12 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // 初始化主题
-  if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute('data-theme', theme.value)
-  }
+  applyTheme()
 
   return {
     theme,
     isDark,
+    isEyecare,
     videoInfo,
     currentTask,
     history,
@@ -76,6 +90,7 @@ export const useAppStore = defineStore('app', () => {
     setAuth,
     logout,
     toggleTheme,
+    setTheme,
     setVideoInfo,
     setParsing,
     setCurrentTask,

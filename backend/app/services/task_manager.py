@@ -8,13 +8,13 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
 from app.config import MAX_WORKERS
 from app.services import downloader
+from app.services.offload import DaemonThreadPoolExecutor
 
 
 class TaskStatus(str, Enum):
@@ -62,13 +62,23 @@ class Task:
 
 class TaskManager:
     def __init__(self, max_workers: int = MAX_WORKERS):
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        # daemon 线程池：卡死的下载/抓流不会阻塞 uvicorn --reload 或进程退出
+        self._executor = DaemonThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="vdio-download"
+        )
         self._tasks: dict[str, Task] = {}
         self._lock = threading.Lock()
         self._on_complete = None  # 完成回调(用于写历史)
 
     def set_on_complete(self, cb):
         self._on_complete = cb
+
+    def shutdown(self):
+        """回收下载线程池：不等待卡死的下载/抓流（daemon 线程随进程销毁）。"""
+        try:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+        except TypeError:  # 兜底：极旧版本无 cancel_futures
+            self._executor.shutdown(wait=False)
 
     def create(self, url: str, quality: str, audio_only: bool, vip_source_id: str | None = None) -> Task:
         task = Task(id=uuid.uuid4().hex[:12], url=url, quality=quality, audio_only=audio_only, vip_source_id=vip_source_id)
@@ -126,6 +136,11 @@ class TaskManager:
 def _friendly_error(raw: str) -> str:
     """把 yt-dlp 冗长报错转成简短中文提示。"""
     low = raw.lower()
+    # 已是中文友好提示（如 YouTube 限流）直接透传
+    if "限流" in raw or "请等待" in raw:
+        return raw[:120]
+    if "rate-limited" in low or "rate limit" in low or "too many requests" in low or "429" in low:
+        return "YouTube 暂时限流（短时间请求过多），请等待几分钟后再试"
     if "unsupported url" in low or "no video" in low:
         return "暂不支持该链接或链接无效"
     if "private" in low or "login" in low or "sign in" in low:

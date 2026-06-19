@@ -22,16 +22,7 @@ export const api = {
     return token ? { Authorization: `Bearer ${token}` } : {}
   },
 
-  // ── 账号 ──
-  async register(username, password) {
-    const res = await fetch(`${API_BASE}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    })
-    return parseJsonResponse(res)
-  },
-
+  // ── 账号（仅管理员登录用于后台维护）──
   async login(username, password) {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
@@ -97,6 +88,38 @@ export const api = {
 
   async adminDeleteSource(id) {
     const res = await fetch(`${API_BASE}/api/admin/sources/${id}`, {
+      method: 'DELETE',
+      headers: this.authHeaders()
+    })
+    return parseJsonResponse(res)
+  },
+
+  // ── 管理端多平台 Cookie ──
+  async adminListCookies() {
+    const res = await fetch(`${API_BASE}/api/admin/cookies`, { headers: this.authHeaders() })
+    return parseJsonResponse(res)
+  },
+
+  async adminSetCookie(platform, content) {
+    const res = await fetch(`${API_BASE}/api/admin/cookies/${platform}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ content })
+    })
+    return parseJsonResponse(res)
+  },
+
+  async adminToggleCookie(platform, enabled) {
+    const res = await fetch(`${API_BASE}/api/admin/cookies/${platform}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ enabled })
+    })
+    return parseJsonResponse(res)
+  },
+
+  async adminDeleteCookie(platform) {
+    const res = await fetch(`${API_BASE}/api/admin/cookies/${platform}`, {
       method: 'DELETE',
       headers: this.authHeaders()
     })

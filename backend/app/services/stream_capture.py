@@ -71,22 +71,28 @@ def capture_media(preview_url: str, timeout_ms: int = 28000) -> dict | None:
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            ctx = browser.new_context(user_agent=_UA)
-            page = ctx.new_page()
-            page.on("response", on_response)
             try:
-                page.goto(preview_url, timeout=timeout_ms, wait_until="domcontentloaded")
-            except Exception as e:
-                logger.info("capture goto warn: %s", str(e)[:80])
-            page.wait_for_timeout(8000)
-            try:  # 主动触发播放，逼出媒体请求
-                page.evaluate(
-                    "document.querySelectorAll('video').forEach(v=>{v.muted=true;v.play&&v.play().catch(()=>{})})"
-                )
-            except Exception:
-                pass
-            page.wait_for_timeout(6000)
-            browser.close()
+                ctx = browser.new_context(user_agent=_UA)
+                page = ctx.new_page()
+                page.on("response", on_response)
+                try:
+                    page.goto(preview_url, timeout=timeout_ms, wait_until="domcontentloaded")
+                except Exception as e:
+                    logger.info("capture goto warn: %s", str(e)[:80])
+                page.wait_for_timeout(8000)
+                try:  # 主动触发播放，逼出媒体请求
+                    page.evaluate(
+                        "document.querySelectorAll('video').forEach(v=>{v.muted=true;v.play&&v.play().catch(()=>{})})"
+                    )
+                except Exception:
+                    pass
+                page.wait_for_timeout(6000)
+            finally:
+                # 无论成功/超时/异常都关闭浏览器，避免泄漏 chromium 进程
+                try:
+                    browser.close()
+                except Exception:
+                    pass
     except Exception as e:
         logger.warning("capture failed: %s", str(e)[:120])
         return None
