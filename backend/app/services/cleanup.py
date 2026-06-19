@@ -26,8 +26,9 @@ logger = logging.getLogger("vdio.cleanup")
 
 # 正在写入中不应被清理的文件后缀
 _SKIP_SUFFIXES = (".part", ".ytdl", ".tmp")
-# 最近修改过的文件保护窗口（秒）：避免误删正在下载/刚完成的文件
-_GRACE = 120
+# 最近修改过的文件保护窗口（秒）：避免误删正在下载/刚完成的文件。
+# 必须小于默认 FILE_TTL(180s)，否则 3 分钟过期策略会被保护窗口抵消。
+_GRACE = min(60, max(0, FILE_TTL // 3))
 
 _stop = threading.Event()
 _thread: threading.Thread | None = None

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.config import DOWNLOAD_DIR
 from app.services import downloader
@@ -151,7 +151,7 @@ async def ws_progress(websocket: WebSocket, task_id: str):
             await websocket.send_json({"code": 0, "data": task.to_dict()})
             if task.status in ("completed", "error"):
                 break
-            await asyncio.sleep(0.3)          # 300ms 轮询间隔
+            await asyncio.sleep(1.0)          # 1s 轮询间隔，降低 WebSocket/CPU 负载
     except WebSocketDisconnect:
         pass
 
@@ -161,7 +161,11 @@ async def ws_progress(websocket: WebSocket, task_id: str):
 # ──────────────────────────────────────────────────────────────
 
 @router.get("/file/{task_id}")
-async def download_file(task_id: str):
+async def download_file(
+    task_id: str,
+    inline: bool = Query(False),
+    range_header: Optional[str] = Header(None, alias="Range"),
+):
     task = task_manager.get(task_id)
     if task is None:
         raise HTTPException(404, detail="任务不存在")
@@ -172,11 +176,56 @@ async def download_file(task_id: str):
     if not fp.exists():
         raise HTTPException(404, detail="文件已被清理或不存在")
 
-    return FileResponse(
-        path=str(fp),
-        filename=task.filename or fp.name,
-        media_type="application/octet-stream",
-    )
+    filename = task.filename or fp.name
+    media_type = "video/mp4" if fp.suffix.lower() == ".mp4" else "application/octet-stream"
+
+    # 普通下载：保持 FileResponse，让浏览器保存文件名。
+    # 页面内播放会带 inline=1，避免 Content-Disposition: attachment 让 video 不渲染。
+    if not range_header:
+        if inline:
+            return FileResponse(path=str(fp), media_type=media_type)
+        return FileResponse(
+            path=str(fp),
+            filename=filename,
+            media_type=media_type,
+        )
+
+    # 浏览器 video/audio 会发 Range 请求；只返回请求片段，避免整文件读入/传输，
+    # 大视频在线播放更顺滑，也更省服务器带宽和内存。
+    file_size = fp.stat().st_size
+    try:
+        range_value = range_header.strip().lower().replace("bytes=", "", 1)
+        start_s, end_s = (range_value.split("-", 1) + [""])[:2]
+        start = int(start_s) if start_s else 0
+        end = int(end_s) if end_s else min(start + 1024 * 1024 - 1, file_size - 1)
+        end = min(end, file_size - 1)
+        if start < 0 or start >= file_size or end < start:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(416, detail="Range 不合法")
+
+    chunk_size = 256 * 1024
+
+    def iter_file():
+        remaining = end - start + 1
+        with open(fp, "rb") as f:
+            f.seek(start)
+            while remaining > 0:
+                chunk = f.read(min(chunk_size, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(end - start + 1),
+        # 不放中文 filename：HTTP header 只能 latin-1，中文会导致 500，video 播放也不需要文件名。
+        "Content-Disposition": "inline",
+        "Cache-Control": "no-store",
+    }
+    return StreamingResponse(iter_file(), status_code=206, headers=headers, media_type=media_type)
 
 
 # ──────────────────────────────────────────────────────────────

@@ -6,22 +6,23 @@
 
 ```bash
 # 构建并启动所有服务
-docker-compose up -d
+# 宿主机访问端口：10002
+docker compose up -d --build
 
 # 查看日志
-docker-compose logs -f
+docker compose logs -f
 
 # 停止服务
-docker-compose down
+docker compose down
 
 # 停止并删除所有数据
-docker-compose down -v
+docker compose down -v
 ```
 
 启动后访问：
-- 前端界面: http://localhost
-- 后端API: http://localhost:8000
-- API文档: http://localhost:8000/docs
+- 前端界面: http://localhost:10002
+- 后端API: 由前端 Nginx 同源代理 `/api`
+- API文档: http://localhost:10002/docs（经同源代理访问）
 
 ### 单独构建
 
@@ -53,7 +54,11 @@ docker run -d -p 80:80 \
 | DOWNLOAD_DIR | 下载文件存储目录 | /app/downloads |
 | HISTORY_FILE | 历史记录文件路径 | /app/history.json |
 | MAX_WORKERS | 下载线程池大小 | 4 |
-| FILE_TTL | 文件保留时长（秒） | 3600 |
+| FILE_TTL | 文件保留时长（秒） | 180 |
+| CLEANUP_INTERVAL | 清理巡检间隔（秒） | 30 |
+| DOWNLOAD_MAX_GB | downloads 总容量上限（GB） | 5 |
+| ADMIN_USERNAME | 默认管理员用户名 | admin |
+| ADMIN_PASSWORD | 默认管理员密码 | admin123 |
 | CORS_ORIGINS | CORS 允许来源 | * |
 
 示例：
@@ -67,12 +72,18 @@ docker run -d -p 8000:8000 \
 
 ## 数据持久化
 
-下载的文件和历史记录通过 volume 挂载持久化：
+下载的文件、历史记录、管理端配置和 Cookie 通过 bind mount 持久化：
 
 ```yaml
 volumes:
-  - ./backend/downloads:/app/downloads    # 下载文件
-  - ./backend/history.json:/app/history.json  # 历史记录
+  - ./backend/downloads:/app/downloads          # 下载文件（默认 3 分钟自动清理）
+  - ./backend/history.json:/app/history.json    # 历史记录
+  - ./backend/vip_sources.json:/app/vip_sources.json
+  - ./backend/users.json:/app/users.json
+  - ./backend/.auth_secret:/app/.auth_secret
+  - ./backend/cookies:/app/cookies              # 管理端平台 Cookie
+  - ./backend/logs:/app/logs
+  - ./backend/proxy.txt:/app/proxy.txt:ro       # 可选代理配置
 ```
 
 ## 生产环境建议
@@ -128,6 +139,6 @@ docker exec -it vdio-backend bash
 
 ### 清理缓存重新构建
 ```bash
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```

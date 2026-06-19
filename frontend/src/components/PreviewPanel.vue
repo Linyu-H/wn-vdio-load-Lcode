@@ -44,8 +44,27 @@
           referrerpolicy="strict-origin-when-cross-origin"
         ></iframe>
       </div>
-      <div v-else-if="videoInfo.thumbnail" class="thumbnail">
+      <div v-else-if="videoInfo.thumbnail" class="thumbnail no-embed">
         <img :src="videoInfo.thumbnail" :alt="videoInfo.title" loading="lazy" />
+        <div class="no-embed-overlay">
+          <Icon name="alert" :size="16" />
+          <span>该平台不支持网页内嵌预览，可直接下载后在本站播放</span>
+          <button @click="startDownload(false)" :disabled="downloading">下载播放</button>
+        </div>
+      </div>
+
+      <div v-if="showNoPreviewTip" class="modal-mask" @click.self="showNoPreviewTip = false">
+        <div class="tip-modal card">
+          <div class="tip-icon"><Icon name="alert" :size="22" /></div>
+          <h3>该视频无法直接预览</h3>
+          <p>抖音等平台会禁止 iframe 嵌入。你可以直接点击下载，下载完成后会在本页面用临时文件播放。</p>
+          <div class="tip-actions">
+            <button class="btn-primary" @click="downloadFromTip" :disabled="downloading">
+              <Icon name="download" :size="15" /> 直接下载
+            </button>
+            <button class="btn-secondary" @click="showNoPreviewTip = false">知道了</button>
+          </div>
+        </div>
       </div>
 
       <div v-if="hasEpisodes" class="episode-bar">
@@ -135,6 +154,15 @@
           <span v-if="taskStatus.eta">剩余 {{ taskStatus.eta }}s</span>
         </div>
         <div v-if="taskStatus.status === 'completed'" class="download-link">
+          <video
+            v-if="!taskStatus.audio_only"
+            class="local-player"
+            :src="getPreviewFileUrl(taskStatus.id)"
+            controls
+            preload="metadata"
+            playsinline
+          ></video>
+          <p v-if="!taskStatus.audio_only" class="play-hint">已下载到本站临时文件，可直接播放；文件约 3 分钟后自动清理。</p>
           <a :href="getDownloadUrl(taskStatus.id)" class="btn-primary" download>
             <Icon name="save" :size="16" /> 保存到本地
           </a>
@@ -161,6 +189,7 @@ const selectedVipSource = ref(null)
 const siteLogoBroken = ref(false)
 const downloading = ref(false)
 const taskStatus = ref(null)
+const showNoPreviewTip = ref(false)
 let ws = null
 
 // 自动解析 / 健康源
@@ -209,6 +238,8 @@ const currentSourceName = computed(() => {
 watch(videoInfo, (newInfo) => {
   siteLogoBroken.value = false
   rankedSources.value = []
+  taskStatus.value = null
+  showNoPreviewTip.value = !!(newInfo && !currentPreviewUrl.value && newInfo.thumbnail && !newInfo.vip_supported)
   if (newInfo && newInfo.qualities && newInfo.qualities.length > 0) {
     selectedQuality.value = newInfo.qualities.find(q => q.id === '1080')?.id || newInfo.qualities[0].id
   }
@@ -267,6 +298,11 @@ async function gotoEpisode(idx) {
 
 function prevEpisode() { if (hasPrev.value) gotoEpisode(episodeIndex.value - 1) }
 function nextEpisode() { if (hasNext.value) gotoEpisode(episodeIndex.value + 1) }
+
+function downloadFromTip() {
+  showNoPreviewTip.value = false
+  startDownload(false)
+}
 
 // 手动选源（已隐藏列表，保留以兼容）
 function selectSource(id) {
@@ -332,6 +368,7 @@ function hideBrokenLogo() {
 
 async function startDownload(audioOnly) {
   if (!videoInfo.value || downloading.value) return
+  showNoPreviewTip.value = false
 
   downloading.value = true
   taskStatus.value = null
@@ -395,6 +432,10 @@ function connectWebSocket(taskId) {
 
 function getDownloadUrl(taskId) {
   return api.getFileUrl(taskId)
+}
+
+function getPreviewFileUrl(taskId) {
+  return `${api.getFileUrl(taskId)}?inline=1`
 }
 </script>
 
@@ -572,11 +613,81 @@ function getDownloadUrl(taskId) {
   border: 0;
 }
 
+.thumbnail {
+  position: relative;
+}
+
 .thumbnail img {
   width: 100%;
   height: auto;
   display: block;
 }
+
+.no-embed-overlay {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, #020617 82%, transparent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+}
+
+.no-embed-overlay span { flex: 1; }
+.no-embed-overlay button {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(6px);
+}
+
+.tip-modal {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+}
+
+.tip-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tip-modal h3 { margin: 0; font-size: 18px; }
+.tip-modal p { margin: 0; color: var(--text-secondary); font-size: 13.5px; line-height: 1.6; }
+.tip-actions { display: flex; gap: 10px; margin-top: 4px; }
+.tip-actions button { flex: 1; }
 
 .info-content {
   display: flex;
@@ -847,7 +958,28 @@ function getDownloadUrl(taskId) {
   color: var(--text-secondary);
 }
 
-.download-link { margin-top: 4px; }
+.download-link {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.local-player {
+  width: 100%;
+  max-height: 52vh;
+  display: block;
+  border-radius: var(--radius-sm);
+  background: #000;
+  border: 1px solid var(--border);
+}
+
+.play-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
 
 .download-link a {
   display: flex;

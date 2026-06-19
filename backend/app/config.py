@@ -38,14 +38,15 @@ def get_proxy() -> str:
 # 下载线程池大小（性能优先，可通过环境变量调高）
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
 
-# 单个已完成文件保留时长（秒），到期后清理；0 表示不按时长清理
-FILE_TTL = int(os.getenv("FILE_TTL", "3600"))
+# 单个已完成文件保留时长（秒），到期后清理；0 表示不按时长清理。
+# 默认 3 分钟，避免 downloads/ 长期堆积用户下载视频。
+FILE_TTL = int(os.getenv("FILE_TTL", "180"))
 
 # downloads 目录总容量上限（GB），超出按最旧优先清理；0 表示不限容量
 DOWNLOAD_MAX_GB = float(os.getenv("DOWNLOAD_MAX_GB", "5"))
 
-# 后台清理巡检间隔（秒）
-CLEANUP_INTERVAL = int(os.getenv("CLEANUP_INTERVAL", "600"))
+# 后台清理巡检间隔（秒）。默认 30 秒，保证 3 分钟 TTL 到期后能很快回收。
+CLEANUP_INTERVAL = int(os.getenv("CLEANUP_INTERVAL", "30"))
 
 # CORS 允许来源（开发期放开，部署可收紧）
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
@@ -69,6 +70,5 @@ YTDLP_BASE_OPTS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Referer": "https://www.bilibili.com/",
     },
 }

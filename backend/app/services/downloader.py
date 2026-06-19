@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
 import time
 import urllib.request
+from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -70,6 +72,73 @@ def _is_youtube_url(url: str) -> bool:
     except ValueError:
         return False
     return "youtube.com" in host or "youtu.be" in host
+
+
+def _is_douyin_url(url: str) -> bool:
+    try:
+        host = (urlparse(url.strip()).netloc or "").lower()
+    except ValueError:
+        return False
+    return "douyin.com" in host or "iesdouyin.com" in host
+
+
+def _is_twitter_url(url: str) -> bool:
+    try:
+        host = (urlparse(url.strip()).netloc or "").lower()
+    except ValueError:
+        return False
+    return "twitter.com" in host or "x.com" in host
+
+
+def _ffmpeg_bin() -> str | None:
+    if imageio_ffmpeg is not None:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    return "ffmpeg"
+
+
+def _ffprobe_available() -> bool:
+    """yt-dlp 的合并/转码后处理需要 ffprobe；imageio-ffmpeg 只带 ffmpeg 不带 ffprobe。"""
+    ffmpeg = _ffmpeg_bin()
+    candidates = []
+    if ffmpeg:
+        candidates.append(str(Path(ffmpeg).with_name("ffprobe")))
+    candidates.append("ffprobe")
+    for cmd in candidates:
+        try:
+            subprocess.run([cmd, "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _faststart_mp4(path: str) -> None:
+    """把 mp4 moov 元数据移到文件头，便于浏览器边下边播。
+
+    只做 stream copy，不转码，CPU/耗时很低；失败不影响下载文件本身。
+    """
+    if not str(path).lower().endswith(".mp4"):
+        return
+    ffmpeg = _ffmpeg_bin()
+    if not ffmpeg:
+        return
+    src = Path(path)
+    tmp = src.with_suffix(src.suffix + ".faststart")
+    try:
+        subprocess.run(
+            [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(src), "-c", "copy", "-movflags", "+faststart", str(tmp)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+        )
+        tmp.replace(src)
+    except Exception as e:  # noqa: BLE001
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        logger.warning("mp4 faststart 处理失败 file=%s err=%s", src.name, str(e)[:120])
 
 
 # cookies 失效 / 需要登录的典型报错特征（命中则触发去 cookies 兜底）
@@ -207,7 +276,9 @@ def _ydlp_opts_for(url: str, *, use_cookies: bool = True, yt_clients: list[str] 
     opts = dict(YTDLP_BASE_OPTS)
     opts["http_headers"] = dict(YTDLP_BASE_OPTS.get("http_headers") or {})
     if imageio_ffmpeg is not None:
-        opts["ffmpeg_location"] = imageio_ffmpeg.get_ffmpeg_exe()
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        # 给 yt-dlp 传目录而非单个 ffmpeg 文件；若系统/目录里有 ffprobe，后处理才能探测音频编码。
+        opts["ffmpeg_location"] = str(Path(ffmpeg).parent)
 
     # 有对应平台 cookie 且本次允许使用就带上：解锁登录内容/高清、绕过部分反爬。
     # yt-dlp 按域名自动匹配，对非对应站点无副作用。
@@ -224,6 +295,21 @@ def _ydlp_opts_for(url: str, *, use_cookies: bool = True, yt_clients: list[str] 
         opts["http_headers"].update({
             "Origin": _BILIBILI_ORIGIN,
             "Referer": url,
+        })
+
+    if _is_douyin_url(url):
+        # 抖音 CDN 会校验 Referer。通用配置里的 B 站 Referer 会导致媒体直链下载 403，
+        # 解析可以成功但下载失败；这里改成抖音站点来源。
+        opts["http_headers"].update({
+            "Origin": "https://www.douyin.com",
+            "Referer": "https://www.douyin.com/",
+        })
+
+    if _is_twitter_url(url):
+        # X/Twitter 的 video.twimg.com 直链会校验来源；全局 B 站 Referer 会导致 403 Unauthorized。
+        opts["http_headers"].update({
+            "Origin": "https://x.com",
+            "Referer": "https://x.com/",
         })
 
     if _is_youtube_url(url):
@@ -300,14 +386,45 @@ def _youtube_embed_url(url: str) -> str | None:
     return None
 
 
-def _preview_url(url: str, info: dict) -> str:
-    """优先返回平台播放器地址；未知平台回退到原视频页。"""
+def _douyin_video_id(url: str) -> str | None:
+    """提取抖音视频 ID；兼容 /video/{id} 和精选页 modal_id={id}。"""
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        return None
+
+    match = re.search(r"/video/(\d+)", parsed.path or "")
+    if match:
+        return match.group(1)
+    modal_id = parse_qs(parsed.query).get("modal_id", [None])[0]
+    if modal_id and modal_id.isdigit():
+        return modal_id
+    return None
+
+
+def _normalize_extractor_url(url: str) -> str:
+    """把平台分享/列表/弹窗 URL 归一成 yt-dlp 支持的单视频 URL。"""
+    if _is_youtube_url(url):
+        video_id = _youtube_video_id(url)
+        if video_id:
+            return f"https://www.youtube.com/watch?v={video_id}"
+    if _is_douyin_url(url):
+        video_id = _douyin_video_id(url)
+        if video_id:
+            return f"https://www.douyin.com/video/{video_id}"
+    return url
+
+
+def _preview_url(url: str, info: dict) -> str | None:
+    """优先返回确定可嵌入的平台播放器；没有 embed 就交给前端展示封面。
+
+    直接把原视频页塞进 iframe 很多平台会被 X-Frame-Options / CSP 拒绝
+    （例如抖音会显示 refused to connect），所以不能把 webpage_url/url 当预览兜底。
+    """
     return (
         _youtube_embed_url(url)
         or _bilibili_embed_url(url)
         or info.get("embed_url")
-        or info.get("webpage_url")
-        or url
     )
 
 
@@ -368,11 +485,7 @@ def extract_info(url: str) -> dict:
     # YouTube 音乐电台 / playlist 链接常带 list=RD...。解析视频信息时只需要当前 v，
     # 保留 list 会先进入 youtube:tab 播放列表提取器，额外请求整列数据，国内/代理环境下容易拖到
     # API 层 45s 超时。下载阶段本来就 noplaylist=True；这里提前归一化为单视频 URL。
-    ydl_url = url
-    if is_yt:
-        video_id = _youtube_video_id(url)
-        if video_id:
-            ydl_url = f"https://www.youtube.com/watch?v={video_id}"
+    ydl_url = _normalize_extractor_url(url)
 
     def _attempt(use_cookies: bool, yt_clients: list[str] | None = None) -> dict:
         opts = _ydlp_opts_for(ydl_url, use_cookies=use_cookies, yt_clients=yt_clients)
@@ -489,12 +602,17 @@ def download(
 
     if audio_only or quality == "audio":
         extra["format"] = _QUALITY_FORMATS["audio"]
-        # 转码为 mp3，便于通用播放
-        extra["postprocessors"] = [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }]
+        if _ffprobe_available():
+            # 转码为 mp3，便于通用播放；需要 ffprobe 判断源音频编码。
+            extra["postprocessors"] = [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }]
+        else:
+            # 本机未安装 ffprobe 时不做后处理转码，直接下载原始音频，避免任务失败。
+            # Docker 镜像 apt 安装 ffmpeg，会自带 ffprobe，仍会走 mp3 转码。
+            logger.warning("ffprobe 不可用：音频下载跳过 mp3 转码，保留源格式")
     else:
         extra["format"] = get_format_string(quality)
         extra["merge_output_format"] = "mp4"
@@ -504,11 +622,18 @@ def download(
 
     is_yt = _is_youtube_url(url)
 
-    ydl_url = url
-    if is_yt:
-        video_id = _youtube_video_id(url)
-        if video_id:
-            ydl_url = f"https://www.youtube.com/watch?v={video_id}"
+    ydl_url = _normalize_extractor_url(url)
+
+    if _is_douyin_url(ydl_url) and not (audio_only or quality == "audio"):
+        # 抖音默认 best 经常选到 bytevc1/h265，下载能成功但浏览器 video 可能无法播放。
+        # 为了本站临时在线播放优先选 h264+aac 的 mp4；没有 h264 时再回退 best。
+        target_h = 2160 if quality == "4k" else int(quality) if str(quality).isdigit() else 1080
+        extra["format"] = (
+            f"best[height<={target_h}][vcodec=h264]/"
+            f"best[height<={target_h}][vcodec^=avc1]/"
+            f"best[vcodec=h264]/best[vcodec^=avc1]/best"
+        )
+        extra["merge_output_format"] = "mp4"
 
     def _attempt(use_cookies: bool, yt_clients: list[str] | None = None):
         opts = _ydlp_opts_for(ydl_url, use_cookies=use_cookies, yt_clients=yt_clients)
@@ -553,10 +678,11 @@ def download(
             filepath = str(filepath).rsplit(".", 1)[0] + ".mp3"
         if is_yt:
             logger.info("yt download 成功 url=%s file=%s", url, os.path.basename(str(filepath)))
+        _faststart_mp4(str(filepath))
     except Exception as original_error:
-        # YouTube 不是第三方 VIP 解析平台，没有可用直链源；直接抛出友好错误，
-        # 避免被 VIP 兜底覆盖成 "VIP 解析源没有提取到可下载直链" 的误导提示。
-        if is_yt:
+        # YouTube 和 X/Twitter 都没有 VIP 解析兜底；直接抛出真实错误，
+        # 避免被覆盖成 "VIP 解析源没有提取到可下载直链" 的误导提示。
+        if is_yt or _is_twitter_url(url):
             raise
         direct = extract_vip_direct_media(url, vip_source_id)
         if not direct:
@@ -570,11 +696,14 @@ def download(
             vip_opts["http_headers"] = {**vip_opts.get("http_headers", {}), **captured_headers}
         if audio_only or quality == "audio":
             vip_opts["format"] = _QUALITY_FORMATS["audio"]
-            vip_opts["postprocessors"] = [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }]
+            if _ffprobe_available():
+                vip_opts["postprocessors"] = [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }]
+            else:
+                logger.warning("ffprobe 不可用：VIP 音频下载跳过 mp3 转码，保留源格式")
         else:
             vip_opts["format"] = "bestvideo+bestaudio/best"
             vip_opts["merge_output_format"] = "mp4"
@@ -585,8 +714,8 @@ def download(
             filepath = ydl.prepare_filename(info)
             if audio_only or quality == "audio":
                 filepath = str(filepath).rsplit(".", 1)[0] + ".mp3"
+        _faststart_mp4(str(filepath))
 
-    from pathlib import Path
     fp = Path(filepath)
     return {
         "filepath": str(fp),

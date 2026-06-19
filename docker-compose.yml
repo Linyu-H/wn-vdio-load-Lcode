@@ -6,17 +6,29 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: vdio-backend
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - ./backend/downloads:/app/downloads
       - ./backend/history.json:/app/history.json
+      - ./backend/vip_sources.json:/app/vip_sources.json
+      - ./backend/users.json:/app/users.json
+      - ./backend/.auth_secret:/app/.auth_secret
+      - ./backend/cookies:/app/cookies
+      - ./backend/logs:/app/logs
+      - ./backend/proxy.txt:/app/proxy.txt:ro
     environment:
       - DOWNLOAD_DIR=/app/downloads
       - HISTORY_FILE=/app/history.json
+      - LOG_DIR=/app/logs
+      - PROXY_FILE=/app/proxy.txt
       - MAX_WORKERS=4
-      - FILE_TTL=3600
+      - FILE_TTL=180
+      - CLEANUP_INTERVAL=30
+      - DOWNLOAD_MAX_GB=5
       - CORS_ORIGINS=*
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     restart: unless-stopped
     networks:
       - vdio-network
@@ -27,7 +39,7 @@ services:
       dockerfile: Dockerfile
     container_name: vdio-frontend
     ports:
-      - "80:80"
+      - "10002:80"
     depends_on:
       - backend
     restart: unless-stopped
@@ -37,6 +49,3 @@ services:
 networks:
   vdio-network:
     driver: bridge
-
-volumes:
-  downloads:
