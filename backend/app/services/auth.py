@@ -26,6 +26,8 @@ def _load_secret() -> bytes:
     if env:
         return env.encode()
     secret_file = Path(BASE_DIR / ".auth_secret")
+    if secret_file.is_dir():
+        secret_file = secret_file / ".auth_secret"
     try:
         if secret_file.exists():
             val = secret_file.read_text(encoding="utf-8").strip()
@@ -102,7 +104,12 @@ def verify_token(token: str) -> dict | None:
 
 class AuthManager:
     def __init__(self, file_path: str | None = None):
-        self._path = file_path or str(USERS_FILE)
+        path = Path(file_path or USERS_FILE)
+        # Docker 会在宿主机文件不存在时把 bind mount 目标创建成目录，
+        # 兼容这种已部署状态，避免启动时 IsADirectoryError。
+        if path.is_dir():
+            path = path / "users.json"
+        self._path = str(path)
         self._lock = threading.Lock()
         self._users: dict[str, dict] = {}
         self._load()
