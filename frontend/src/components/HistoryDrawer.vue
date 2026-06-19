@@ -139,7 +139,7 @@ watch(isOpen, (open) => {
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(8, 12, 18, 0.5);
+  background: rgba(40, 28, 14, 0.42);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   z-index: 1000;

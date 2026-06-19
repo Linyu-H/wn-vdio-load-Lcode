@@ -26,7 +26,7 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadCookies() })
 
 async function addSource() {
   if (!form.value.url.trim()) { alert('请填写解析源 URL'); return }
@@ -75,6 +75,71 @@ async function remove(s) {
   } catch (err) {
     alert('删除失败：' + err.message)
   }
+}
+
+// ── 多平台 Cookie 管理 ──
+const cookies = ref([])
+const cookieLoading = ref(false)
+const cookieEditing = ref(null)   // 当前展开粘贴框的平台 id
+const cookieText = ref('')
+const cookieSaving = ref(false)
+
+async function loadCookies() {
+  cookieLoading.value = true
+  try {
+    const res = await api.adminListCookies()
+    if (res.code === 0) cookies.value = res.data
+  } catch (err) {
+    alert('加载 Cookie 状态失败：' + err.message)
+  } finally {
+    cookieLoading.value = false
+  }
+}
+
+function openCookieEditor(c) {
+  cookieEditing.value = cookieEditing.value === c.platform ? null : c.platform
+  cookieText.value = ''
+}
+
+async function saveCookie(c) {
+  if (!cookieText.value.trim()) { alert('请粘贴 cookie 内容（JSON 数组或 cookies.txt 文本）'); return }
+  cookieSaving.value = true
+  try {
+    const res = await api.adminSetCookie(c.platform, cookieText.value)
+    if (res.code === 0) {
+      cookieEditing.value = null
+      cookieText.value = ''
+      await loadCookies()
+    }
+  } catch (err) {
+    alert('保存失败：' + err.message)
+  } finally {
+    cookieSaving.value = false
+  }
+}
+
+async function toggleCookie(c) {
+  try {
+    await api.adminToggleCookie(c.platform, !c.enabled)
+    await loadCookies()
+  } catch (err) {
+    alert('操作失败：' + err.message)
+  }
+}
+
+async function clearCookie(c) {
+  if (!confirm(`确定清除「${c.name}」的 cookie？清除后该平台将走匿名解析。`)) return
+  try {
+    await api.adminDeleteCookie(c.platform)
+    await loadCookies()
+  } catch (err) {
+    alert('清除失败：' + err.message)
+  }
+}
+
+function fmtTime(ts) {
+  if (!ts) return ''
+  return new Date(ts * 1000).toLocaleString()
 }
 
 function logout() {
@@ -167,6 +232,55 @@ function logout() {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 多平台 Cookie 管理 -->
+    <div class="section-head">
+      <div>
+        <h2>平台 Cookie</h2>
+        <p>可选增强：多数平台无需 cookie 也能下载；配置后可解锁登录内容 / 高清 / 反爬。粘贴支持浏览器扩展导出的 JSON 数组或 cookies.txt 文本，后端自动识别。</p>
+      </div>
+    </div>
+
+    <div class="cookie-list card">
+      <div v-if="cookieLoading" class="table-empty">加载中…</div>
+      <div v-else class="cookie-grid">
+        <div v-for="c in cookies" :key="c.platform" class="cookie-card" :class="{ configured: c.configured, off: c.configured && !c.enabled }">
+          <div class="ck-top">
+            <div class="ck-id">
+              <span class="ck-name">{{ c.name }}</span>
+              <span class="ck-tag" v-if="c.configured && c.enabled">已配置 · {{ c.count }} 条</span>
+              <span class="ck-tag muted" v-else-if="c.configured">已禁用 · {{ c.count }} 条</span>
+              <span class="ck-tag empty" v-else>未配置（匿名）</span>
+            </div>
+            <div class="ck-ops">
+              <button v-if="c.configured" class="op" @click="toggleCookie(c)" :title="c.enabled ? '禁用' : '启用'">
+                <Icon :name="c.enabled ? 'check' : 'close'" :size="15" />
+              </button>
+              <button v-if="c.configured" class="op danger" @click="clearCookie(c)" title="清除"><Icon name="trash" :size="15" /></button>
+              <button class="op" @click="openCookieEditor(c)" :title="c.configured ? '更新' : '添加'"><Icon name="refresh" :size="15" /></button>
+            </div>
+          </div>
+          <p class="ck-time" v-if="c.updated_at">更新于 {{ fmtTime(c.updated_at) }}</p>
+
+          <transition name="slide">
+            <div v-if="cookieEditing === c.platform" class="ck-editor">
+              <textarea
+                v-model="cookieText"
+                rows="6"
+                spellcheck="false"
+                placeholder='粘贴 JSON 数组（[{"name":...,"value":...}]）或 Netscape cookies.txt 文本'
+              ></textarea>
+              <div class="ck-editor-actions">
+                <button class="btn-primary" :disabled="cookieSaving" @click="saveCookie(c)">
+                  <Icon name="check" :size="15" /> {{ cookieSaving ? '保存中…' : '保存' }}
+                </button>
+                <button class="btn-secondary" @click="cookieEditing = null">取消</button>
+              </div>
+            </div>
+          </transition>
+        </div>
+      </div>
     </div>
   </main>
 </template>
@@ -274,6 +388,50 @@ tbody tr:hover { background: var(--bg-hover); }
 
 .slide-enter-active, .slide-leave-active { transition: all 0.3s var(--ease-out); }
 .slide-enter-from, .slide-leave-to { opacity: 0; transform: translateY(-12px); }
+
+/* ── 平台 Cookie ── */
+.section-head { margin-top: 12px; }
+.section-head h2 { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; margin: 0; }
+.section-head p { font-size: 12.5px; color: var(--text-tertiary); margin: 6px 0 0; max-width: 760px; line-height: 1.6; }
+
+.cookie-list { padding: 16px; }
+.cookie-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.cookie-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.cookie-card.configured { border-color: var(--accent); background: var(--accent-soft); }
+.cookie-card.off { border-color: var(--border-strong); background: var(--bg-subtle); opacity: 0.7; }
+
+.ck-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.ck-id { display: flex; flex-direction: column; gap: 4px; }
+.ck-name { font-size: 14px; font-weight: 700; }
+.ck-tag { font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.ck-tag.muted { color: var(--text-tertiary); }
+.ck-tag.empty { color: var(--text-tertiary); font-weight: 500; }
+.ck-ops { display: flex; gap: 4px; flex-shrink: 0; }
+.ck-time { font-size: 11px; color: var(--text-tertiary); margin: 0; }
+
+.ck-editor { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.ck-editor textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+}
+.ck-editor-actions { display: flex; gap: 8px; }
 
 @media (max-width: 768px) {
   .c-url { display: none; }

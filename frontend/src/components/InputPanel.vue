@@ -142,27 +142,29 @@ async function pasteFromClipboard() {
 }
 
 .search-bar {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 8px 8px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-strong);
+  padding: 8px 8px 8px 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-md);
-  transition: box-shadow 0.25s var(--ease), border-color 0.25s var(--ease),
-              transform 0.25s var(--ease-out);
+  box-shadow: var(--shadow-lg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  transition: box-shadow 0.3s var(--ease), border-color 0.3s var(--ease),
+              transform 0.3s var(--ease-out);
 }
-
 .search-bar.focused {
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-ring), var(--shadow-lg);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-lg);
   transform: translateY(-1px);
 }
 
 .search-bar.invalid {
-  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
 }
 
 .search-icon {
@@ -206,18 +208,20 @@ async function pasteFromClipboard() {
   align-items: center;
   gap: 8px;
   height: 46px;
-  padding: 0 22px;
+  padding: 0 24px;
   border-radius: var(--radius-pill);
-  background: var(--accent);
+  background: var(--accent-gradient);
+  background-size: 160% 160%;
   color: var(--text-on-brand);
   font-size: 15px;
   font-weight: 600;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--glow-accent);
 }
 
 .search-go:hover:not(:disabled) {
-  background: var(--accent-hover);
-  box-shadow: 0 4px 16px var(--accent-ring);
+  background-position: 100% 50%;
+  box-shadow: var(--glow-strong);
+  transform: translateY(-1px);
 }
 
 .search-go:active:not(:disabled) { transform: scale(0.97); }

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.config import DOWNLOAD_DIR
 from app.services import downloader
@@ -20,10 +20,18 @@ from app.api.history import history_manager
 from app.services.auth import auth_manager, verify_token
 from app.services.source_store import source_store
 from app.services.source_health import source_health
+from app.services.cookie_store import cookie_store
 from app.services.episodes import get_episodes
+from app.services.offload import run_blocking
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger("vdio.api")
+
+# 阻塞型操作的超时上限（秒），到点不再等待，按失败/降级处理，避免请求悬挂。
+# YouTube 走 fail-fast：连不上时约 15~20s 内带"配置代理"提示返回，无需等满。
+PARSE_TIMEOUT = 45
+RESOLVE_TIMEOUT = 40
+EPISODES_TIMEOUT = 45
 
 
 # ──────────────────────────────────────────────────────────────
@@ -76,7 +84,9 @@ async def info(
         return {"code": 0, "data": data}
 
     try:
-        data = downloader.extract_info(url)
+        # 阻塞型解析(yt-dlp + 取站点图标)丢到 daemon 线程池，避免卡死事件循环；
+        # 超时按失败处理（VIP 站点回退解析源，普通站点返回 504）。
+        data = await run_blocking(downloader.extract_info, url, timeout=PARSE_TIMEOUT)
         has_embed = downloader.has_embeddable_preview(url, data)
         logger.info(
             "parse_info normal ok url=%s platform=%s preview=%s has_embed=%s vip_supported=%s",
@@ -97,10 +107,12 @@ async def info(
             data["vip_parse_sources"] = []
     except Exception as e:
         logger.exception("parse_info normal failed url=%s", url)
+        is_timeout = isinstance(e, asyncio.TimeoutError)
+        reason = "解析超时，请重试" if is_timeout else (str(e)[:200] or "解析失败")
         if is_vip_supported_url(url):
             logger.info("parse_info exception fallback_vip url=%s", url)
-            return {"code": 0, "data": build_vip_info(url, str(e)[:200])}
-        raise HTTPException(400, detail=f"解析失败: {str(e)[:200]}") from e
+            return {"code": 0, "data": build_vip_info(url, reason)}
+        raise HTTPException(504 if is_timeout else 400, detail=f"解析失败: {reason}") from e
 
     return {"code": 0, "data": data}
 
@@ -139,7 +151,7 @@ async def ws_progress(websocket: WebSocket, task_id: str):
             await websocket.send_json({"code": 0, "data": task.to_dict()})
             if task.status in ("completed", "error"):
                 break
-            await asyncio.sleep(0.3)          # 300ms 轮询间隔
+            await asyncio.sleep(1.0)          # 1s 轮询间隔，降低 WebSocket/CPU 负载
     except WebSocketDisconnect:
         pass
 
@@ -149,7 +161,11 @@ async def ws_progress(websocket: WebSocket, task_id: str):
 # ──────────────────────────────────────────────────────────────
 
 @router.get("/file/{task_id}")
-async def download_file(task_id: str):
+async def download_file(
+    task_id: str,
+    inline: bool = Query(False),
+    range_header: Optional[str] = Header(None, alias="Range"),
+):
     task = task_manager.get(task_id)
     if task is None:
         raise HTTPException(404, detail="任务不存在")
@@ -160,11 +176,56 @@ async def download_file(task_id: str):
     if not fp.exists():
         raise HTTPException(404, detail="文件已被清理或不存在")
 
-    return FileResponse(
-        path=str(fp),
-        filename=task.filename or fp.name,
-        media_type="application/octet-stream",
-    )
+    filename = task.filename or fp.name
+    media_type = "video/mp4" if fp.suffix.lower() == ".mp4" else "application/octet-stream"
+
+    # 普通下载：保持 FileResponse，让浏览器保存文件名。
+    # 页面内播放会带 inline=1，避免 Content-Disposition: attachment 让 video 不渲染。
+    if not range_header:
+        if inline:
+            return FileResponse(path=str(fp), media_type=media_type)
+        return FileResponse(
+            path=str(fp),
+            filename=filename,
+            media_type=media_type,
+        )
+
+    # 浏览器 video/audio 会发 Range 请求；只返回请求片段，避免整文件读入/传输，
+    # 大视频在线播放更顺滑，也更省服务器带宽和内存。
+    file_size = fp.stat().st_size
+    try:
+        range_value = range_header.strip().lower().replace("bytes=", "", 1)
+        start_s, end_s = (range_value.split("-", 1) + [""])[:2]
+        start = int(start_s) if start_s else 0
+        end = int(end_s) if end_s else min(start + 1024 * 1024 - 1, file_size - 1)
+        end = min(end, file_size - 1)
+        if start < 0 or start >= file_size or end < start:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(416, detail="Range 不合法")
+
+    chunk_size = 256 * 1024
+
+    def iter_file():
+        remaining = end - start + 1
+        with open(fp, "rb") as f:
+            f.seek(start)
+            while remaining > 0:
+                chunk = f.read(min(chunk_size, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(end - start + 1),
+        # 不放中文 filename：HTTP header 只能 latin-1，中文会导致 500，video 播放也不需要文件名。
+        "Content-Disposition": "inline",
+        "Cache-Control": "no-store",
+    }
+    return StreamingResponse(iter_file(), status_code=206, headers=headers, media_type=media_type)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -194,13 +255,7 @@ async def clear_history():
 #  账号系统
 # ──────────────────────────────────────────────────────────────
 
-@router.post("/auth/register")
-async def register(username: str = Body(...), password: str = Body(...)):
-    try:
-        user = auth_manager.register(username, password)
-    except ValueError as e:
-        raise HTTPException(400, detail=str(e))
-    return {"code": 0, "data": user}
+# 公开注册已下线：仅管理员账号（环境变量种子）用于后台维护，无普通用户体系。
 
 
 @router.post("/auth/login")
@@ -229,16 +284,21 @@ async def vip_resolve(url: str = Body(..., embed=True)):
     sources = get_vip_sources_for_url(url)
     if not sources:
         return {"code": 0, "data": {"sources": [], "best": None}}
-    ranked = await asyncio.to_thread(source_health.rank, sources, url)
+    try:
+        ranked = await run_blocking(source_health.rank, sources, url, timeout=RESOLVE_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.warning("vip_resolve probe timeout url=%s", url)
+        ranked = sources  # 探测超时：退回未排序源，至少保证可用
     best = next((s for s in ranked if s.get("healthy")), ranked[0] if ranked else None)
     return {"code": 0, "data": {"sources": ranked, "best": best}}
 
 
 @router.post("/vip/report-failure")
 async def vip_report_failure(source_id: str = Body(..., embed=True)):
-    """前端反馈某源播放失败，累计熔断。"""
+    """前端反馈某源播放失败：直接禁用该源，以后解析不再使用（熔断）。"""
     source_health.report_failure(source_id)
-    return {"code": 0, "msg": "已记录"}
+    source_store.update(source_id, enabled=False)
+    return {"code": 0, "msg": "已禁用该源"}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -249,7 +309,11 @@ async def vip_report_failure(source_id: str = Body(..., embed=True)):
 async def episodes(url: str = Query(...)):
     if not is_valid_url(url):
         raise HTTPException(400, detail="链接格式无效")
-    data = await asyncio.to_thread(get_episodes, url)
+    try:
+        data = await run_blocking(get_episodes, url, timeout=EPISODES_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.warning("episodes timeout url=%s", url)
+        data = {"episodes": [], "current_index": -1}
     return {"code": 0, "data": data}
 
 
@@ -295,3 +359,47 @@ async def admin_delete_source(source_id: str, _: dict = Depends(require_admin)):
     if not source_store.delete(source_id):
         raise HTTPException(404, detail="解析源不存在")
     return {"code": 0, "msg": "已删除"}
+
+
+# ──────────────────────────────────────────────────────────────
+#  管理端：多平台 Cookie 管理（需 admin）
+#  cookie 是可选增强：很多平台无 cookie 也能下载；配置后解锁登录内容/高清。
+# ──────────────────────────────────────────────────────────────
+
+@router.get("/admin/cookies")
+async def admin_list_cookies(_: dict = Depends(require_admin)):
+    """各平台 cookie 状态（仅元信息，不回显明文）。"""
+    return {"code": 0, "data": cookie_store.list_all()}
+
+
+@router.put("/admin/cookies/{platform}")
+async def admin_set_cookie(
+    platform: str,
+    content: str = Body(..., embed=True),
+    _: dict = Depends(require_admin),
+):
+    """保存某平台 cookie。content 支持浏览器扩展导出的 JSON 数组或 Netscape 文本，自动识别。"""
+    try:
+        meta = cookie_store.save(platform, content)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    return {"code": 0, "data": meta}
+
+
+@router.patch("/admin/cookies/{platform}")
+async def admin_toggle_cookie(
+    platform: str,
+    enabled: bool = Body(..., embed=True),
+    _: dict = Depends(require_admin),
+):
+    meta = cookie_store.set_enabled(platform, enabled)
+    if not meta:
+        raise HTTPException(404, detail="该平台尚未配置 cookie")
+    return {"code": 0, "data": meta}
+
+
+@router.delete("/admin/cookies/{platform}")
+async def admin_delete_cookie(platform: str, _: dict = Depends(require_admin)):
+    if not cookie_store.delete(platform):
+        raise HTTPException(404, detail="该平台尚未配置 cookie")
+    return {"code": 0, "msg": "已清除该平台 cookie"}

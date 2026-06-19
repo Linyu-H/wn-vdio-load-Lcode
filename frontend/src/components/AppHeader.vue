@@ -10,17 +10,14 @@
         <button @click="toggleHistory" class="icon-btn" title="下载历史" aria-label="下载历史">
           <Icon name="history" :size="19" />
         </button>
-        <button @click="toggleTheme" class="icon-btn" :title="isDark ? '切换浅色' : '切换深色'" aria-label="切换主题">
-          <Icon :name="isDark ? 'sun' : 'moon'" :size="19" />
+        <button @click="toggleTheme" class="icon-btn" :title="themeTitle" aria-label="切换主题">
+          <Icon :name="themeIcon" :size="19" />
         </button>
         <button v-if="isAdmin" @click="goAdmin" class="text-btn" title="管理端">
           <Icon name="shield" :size="16" /> 管理端
         </button>
-        <button v-if="isLoggedIn" @click="logout" class="text-btn ghost" :title="`退出 ${store.user?.username}`">
+        <button v-if="isAdmin" @click="logout" class="text-btn ghost" :title="`退出 ${store.user?.username}`">
           {{ store.user?.username }}
-        </button>
-        <button v-else @click="goLogin" class="text-btn solid">
-          <Icon name="user" :size="16" /> 登录
         </button>
       </div>
     </div>
@@ -35,8 +32,12 @@ import Icon from './Icon.vue'
 
 const store = useAppStore()
 const router = useRouter()
-const isDark = computed(() => store.isDark)
-const isLoggedIn = computed(() => store.isLoggedIn)
+const themeIcon = computed(() => ({ light: 'sun', eyecare: 'eye', dark: 'moon' }[store.theme] || 'sun'))
+const themeTitle = computed(() => ({
+  light: '当前：浅蓝 · 点击切换护眼',
+  eyecare: '当前：护眼 · 点击切换深色',
+  dark: '当前：深色 · 点击切换浅蓝',
+}[store.theme] || '切换主题'))
 const isAdmin = computed(() => store.isAdmin)
 
 function toggleTheme() {
@@ -47,7 +48,6 @@ function toggleHistory() {
   store.toggleHistoryDrawer()
 }
 
-function goLogin() { router.push('/login') }
 function goAdmin() { router.push('/admin') }
 function logout() {
   if (confirm('确定退出登录？')) {

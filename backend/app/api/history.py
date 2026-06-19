@@ -34,11 +34,21 @@ class HistoryManager:
 
     # ── 公开接口 ──────────────────────────────────────────────
 
-    def add(self, record: dict):
-        """新增一条历史记录（下载完成时调用）。"""
-        record["downloaded_at"] = time.time()
+    def add(self, record):
+        """新增一条历史记录（下载完成时调用）。支持 Task 对象或 dict。"""
+        if hasattr(record, "to_dict"):
+            data = record.to_dict()
+        elif isinstance(record, dict):
+            data = dict(record)
+        else:
+            data = {"id": getattr(record, "id", None)}
+
+        # task.to_dict() 不暴露 filepath，但会暴露 filename / title / url / status 等历史需要字段。
+        data["downloaded_at"] = time.time()
+        # 前端旧逻辑读 created_at；后端历史统一补齐，避免显示为空。
+        data.setdefault("created_at", data["downloaded_at"] * 1000)
         with self._lock:
-            self._records.insert(0, record)
+            self._records.insert(0, data)
             if len(self._records) > 500:          # 最多保留 500 条
                 self._records.pop()
             self._save()

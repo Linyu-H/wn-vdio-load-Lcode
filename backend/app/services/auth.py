@@ -1,7 +1,7 @@
 """账号系统：JSON 持久化用户 + pbkdf2 密码哈希 + HMAC 签名 token。
 
-零额外依赖（仅标准库 hashlib/hmac/secrets）。角色 admin / user。
-首次启动用环境变量 ADMIN_USERNAME / ADMIN_PASSWORD 种子默认管理员。
+零额外依赖（仅标准库 hashlib/hmac/secrets）。公开注册已下线，仅保留管理员账号
+用于后台维护；首次启动用环境变量 ADMIN_USERNAME / ADMIN_PASSWORD 种子默认管理员。
 """
 from __future__ import annotations
 
@@ -19,8 +19,31 @@ from app.config import BASE_DIR
 
 USERS_FILE = Path(BASE_DIR / "users.json")
 
-# token 签名密钥：环境变量优先，否则随机生成（重启即失效，生产应固定）
-_SECRET = os.getenv("AUTH_SECRET", secrets.token_hex(32)).encode()
+# token 签名密钥：环境变量 AUTH_SECRET 优先；否则持久化到 .auth_secret 文件，
+# 保证重启后已签发 token 仍有效（管理员不会每次重启都被强制重新登录）。
+def _load_secret() -> bytes:
+    env = os.getenv("AUTH_SECRET")
+    if env:
+        return env.encode()
+    secret_file = Path(BASE_DIR / ".auth_secret")
+    try:
+        if secret_file.exists():
+            val = secret_file.read_text(encoding="utf-8").strip()
+            if val:
+                return val.encode()
+        val = secrets.token_hex(32)
+        secret_file.write_text(val, encoding="utf-8")
+        try:
+            os.chmod(secret_file, 0o600)
+        except OSError:
+            pass
+        return val.encode()
+    except OSError:
+        # 文件不可写则退回随机（重启失效，但不致崩溃）
+        return secrets.token_hex(32).encode()
+
+
+_SECRET = _load_secret()
 _TOKEN_TTL = int(os.getenv("AUTH_TOKEN_TTL", str(7 * 24 * 3600)))  # 默认 7 天
 
 _PBKDF2_ROUNDS = 120_000
@@ -110,24 +133,7 @@ class AuthManager:
                 self._save()
 
     # ── 公开接口 ──────────────────────────────────────────────
-
-    def register(self, username: str, password: str) -> dict:
-        username = (username or "").strip()
-        if len(username) < 3:
-            raise ValueError("用户名至少 3 个字符")
-        if len(password or "") < 6:
-            raise ValueError("密码至少 6 个字符")
-        with self._lock:
-            if username in self._users:
-                raise ValueError("用户名已存在")
-            self._users[username] = {
-                "username": username,
-                "password": _hash_password(password),
-                "role": "user",
-                "created_at": time.time(),
-            }
-            self._save()
-        return {"username": username, "role": "user"}
+    # 注：公开注册已下线，系统仅保留管理员账号（_seed_admin 种子）用于后台维护。
 
     def login(self, username: str, password: str) -> dict:
         with self._lock:

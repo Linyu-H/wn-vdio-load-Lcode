@@ -345,3 +345,95 @@ docker-compose down
 3. 是否需要登录鉴权 (默认无，单机使用)
 4. 下载模式：服务端下载后提供下载链接（服务器需要存储空间，但体验好）
 解析出直链后重定向/代理下载（不占服务器空间，但部分平台可能不支持) 两种都需要
+
+---
+
+## 🔄 阶段十：日志 / cookie / 代理 / 抓流卸载 + 夕阳金调 UI（当前迭代）
+
+### T17 后端可观测性与稳定性
+- [x] T17.1 `logging_config.py`：统一 `vdio.*` 日志，轮转写 `backend/logs/vdio.log` + 控制台，`main.py` 顶部初始化
+- [x] T17.2 `offload.py`：daemon 线程池卸载阻塞型 yt-dlp/抓流调用 + 超时，避免卡死事件循环 / 热重载僵死
+- [x] T17.3 `cookie_store.py`：按平台持久化 cookies（`cookies/` 目录 + `_meta.json`），管理端可导入
+- [x] T17.4 `config.get_proxy()`：`proxy.txt` 优先、即时生效、无需重启；`proxy.txt.example` 模板
+
+### T18 YouTube 解析诊断与可改代码点
+> 结论（2026-06-19 实测）：当前"解析超时/bot 验证"**根因是 yt-dlp 版本时效**——本环境
+> PyPI/GitHub 时间线冻结在 2025.10.14，拿不到能对抗 YouTube 新风控的版本。代理(7897)
+> 连通、换 6 种客户端、带 2 份 cookies、装 nightly，**全部撞 `Sign in to confirm you're
+> not a bot`**。这是 YouTube 服务端风控，代码无法根除。
+- [x] T18.1 兜底逻辑反转：撞 bot 墙时**保留 cookies** 换宽客户端集合重试（`_is_bot_wall`），去 cookies 仅在无 cookie 时降级
+- [x] T18.2 `_bot_wall_message`：给三条可执行处置（更新 cookies / 升级 yt-dlp / 换代理 IP）
+- [x] T18.3 `_network_error_message(exc)`：区分"代理被拒 / 代理超时 / 没配代理"三态指路
+- [x] T18.4 `extract_info` `socket_timeout` 8s→15s（代理通常 2-3s 返回，远小于 PARSE_TIMEOUT 45s）
+- [ ] T18.5（需用户侧/环境）真解 YouTube：升级 yt-dlp 最新版 + 新鲜 cookies + 未被标记的代理出口
+
+> **运维要点**：本机真实可用代理端口是 **7897**（常被误填的 7890 会 Connection refused）。
+> 配置：`backend/proxy.txt` 写一行 `http://127.0.0.1:7897`。
+
+### T19 夕阳金调写实 UI 重构
+- [x] T19.1 `style.css` 设计令牌：品牌色冷蓝→暖金/蜜金，底色深空蓝→暖白磨砂，文字银白→深棕灰，辉光→暖金柔光
+- [x] T19.2 暗色主题改为**暮色蓝紫 + 星空**（夜空版），保留明暗切换
+- [x] T19.3 `SkyScene.vue` 重写：天空渐变(淡天蓝→粉橘→蜜金) + 低角度夕阳光晕 + 蓬松积云镶金边 + 云丝水汽（替换六棱冰晶）+ 翠绿大地田垄（新增远景）+ 云缝金束
+- [x] T19.4 交互改写：点击=暖金气浪推开云丝/水汽 + 上浮金粒；滚轮=俯冲(地面放大)/拉升(视野开阔)；划过云丝提亮金边；`prefers-reduced-motion` 降级
+- [x] T19.5 8 个组件硬编码冷蓝色收尾（InputPanel 光晕 / HomeView 标题渐变+文字阴影 / HistoryDrawer 遮罩暖化）
+- [x] T19.6 `npm run build` 通过，无冷蓝残留
+
+---
+
+## 🔄 阶段十一：logo 修复 + 浅蓝主题回退 + 护眼模式 + YouTube 多引擎调研（当前迭代）
+
+### T20 站点 logo 一致性修复
+- [x] T20.1 `downloader._site_logo_url` 由「实时爬首页 `<link rel=icon>`」改为直接拼主站 `/favicon.ico`，与 VIP 路径 `_favicon_url` 对齐；删除 `_ICON_RE/_HREF_RE/urljoin` 死引用
+  - 根因：UP主视频走普通路径，爬到的 B 站图标是 hdslb CDN 地址，浏览器加载失败 → 前端 `@error` 回退成 📺；会员视频走 VIP 路径用 `/favicon.ico` 能加载 → 显示真 logo。两路径现统一为可靠直链
+
+### T21 UI 回退浅蓝 + 护眼模式（撤销 T19 夕阳金调）
+- [x] T21.1 `style.css`：`:root` 与 `[data-theme=dark]` 改回天蓝 / 深蓝配色（保留 T19 新增的 glass/glow/sheen 令牌结构，仅换色值）
+- [x] T21.2 新增 `[data-theme="eyecare"]` 护眼模式：暖米底 `#f6ecd8` + 卡片 `#fbf3e2` + 柔和琥珀强调 `#c98a3c`（复用 T19 暖色但降饱和、低蓝光），按钮文字改深棕保证对比
+- [x] T21.3 主题切换改为单按钮三态循环 **浅蓝 → 护眼 → 深色**（`stores/app.js` 加 `THEMES`/`setTheme`/`isEyecare`，校验持久化值；AppHeader 图标 ☀️/👁/🌙 与提示随当前态变；`Icon.vue` 加 `eye`）
+- [x] T21.4 `App.vue` 还原浅蓝径向渐变背景，删除 `SkyScene.vue`（旧日落背景，已无人引用，构建无变化）
+- [x] T21.5 组件硬编码暖色改回主题变量（HomeView 标题渐变 `--accent-flow` / 文字阴影 `--accent-ring`，InputPanel 光晕 `--accent-gradient`）
+- [x] T21.6 聚焦高亮去掉过蓝的大光晕，改为「高亮输入框边框」：`.search-bar.focused` 用 1px 描边 + 抬升；全局 `input:focus` 由 3px ring 改 1px 贴边描边
+- [x] T21.7 `npm run build` 通过
+
+### T22 YouTube 多引擎 / 反风控调研（待实施，回应「还有别的方法获取解析 YouTube」）
+> 背景：T18 结论——「解析不了」根因是 YouTube 服务端 bot 墙 + 本环境 yt-dlp 版本时效，
+> 单靠堆客户端 / 换 cookies 无解。下列为可选方案，按性价比排序。
+> ⚠️ 调研于 2026-06，受网络限制未能在线复核，实施时需核对各项目最新版本与用法。
+- [ ] T22.1 **【最对症】PO Token**：YouTube bot 墙本质是缺 proof-of-origin token。装 `bgutil-ytdlp-pot-provider` 插件（Node sidecar 跑 BotGuard 自动签发 PO token），配 `--extractor-args youtube:player_client=web_safari,tv`，直接过 "not a bot" 墙。改动最小、最对症
+- [ ] T22.2 **【第二引擎】自托管 Cobalt**（`imputnet/cobalt`）：专为下载站设计的 API，原生处理 YT + PO token，HTTP 调用直接拿直链。最适合做 yt-dlp 的平替 / 兜底引擎
+- [ ] T22.3 **【轻量兜底】pytubefix**（`JuanBindez/pytubefix`，Python 原生，内置 PO token）：常在 yt-dlp 被墙时还能出片，做二级引擎兜底
+- [ ] T22.4 **【代理】** 数据中心 IP 最快被标记 → 换住宅 / 移动代理轮换出口，显著降限流（配合现有 `get_proxy()`）
+- [ ] T22.5 **【缓存】** 缓存 info + 直链（googlevideo 直链约 6h 有效），减少重复 player 请求触发 429
+- [ ] T22.6 **【可选】** 自托管 Invidious / Piped 实例作流代理（`/api/v1/videos/{id}`、`/streams/{id}`，把风控转移到实例侧）；或 YouTube Data API v3 仅取元信息（拿不到直链，但可省提取器的元信息调用）
+> 推荐落地组合：先上 **T22.1 PO token 插件**（最省事最对症）→ 再接 **T22.2 Cobalt 自托管**做兜底 → 代理换 **住宅出口（T22.4）** → 加 **直链缓存（T22.5）**。
+
+### T23 「新方法可行性」复盘（2026-06-19，回应用户提问）
+> 用户问：①最新提交的「新获取 YouTube 方法」可行吗？②还有别的方法吗？
+
+- [x] T23.1 **判定最新 commit `51f4c13`「升级 yt-dlp」在本环境无效**：实测装的仍是 `yt_dlp 2025.10.14`（PyPI 镜像冻结，`pip -U` 升不动），`downloader.py:114` 仍是 `android_vr` 单客户端。该 commit 真正生效的只有「画质档位适配低清」那半截（低清视频不再因无 1080/4K 档失败），**与 bot 墙无关**。
+- [x] T23.2 **重申根因**：本冻结沙箱里 YouTube 实质解析不了——yt-dlp 版本时效 + 出口 IP 被标记 + 缺 PO token，均为服务端/环境问题，改代码不能根除（详见 [[youtube-ratelimit-rootcause]]）。
+- [x] T23.3 **多方法可行性矩阵**（按对症度排序，⚠️ 因网络 429 未能在线复核版本，基于代码现状 + 知识截至 2026-01 + T22 调研）：
+  | 方案 | 对症度 | 本冻结环境 | 真实部署机 |
+  |---|---|---|---|
+  | PO Token 插件 (bgutil-ytdlp-pot-provider) | ★★★★★ | ❌ 装不了 | ✅ 最推荐，改动最小 |
+  | 自托管 Cobalt | ★★★★ | ❌ 需独立服务 | ✅ 做兜底引擎 |
+  | pytubefix（内置 PO token） | ★★★ | ❌ 会过期 | ✅ 二级兜底 |
+  | 住宅/移动代理轮换 | ★★★★ | ⚠️ 需代理源 | ✅ 强烈建议，可叠加 |
+  | 直链/info 缓存（直链约 6h） | ★★ | ✅ 可做 | ✅ |
+  | Invidious/Piped 代理 | ★ | ❌ | ⚠️ 公共实例多已死，价值下降 |
+- [ ] T23.4 **真实部署落地组合（待在联网机上实施 + 核对各项目当前版本）**：PO token 插件打底 → Cobalt 自托管兜底 → 代理换住宅出口 → 加直链缓存。本冻结沙箱内仅 T22.5/T23 缓存一项可先做。
+
+### T24 下线公开登录，仅留管理员维护入口（2026-06-19）
+> 用户要求：去掉普通用户登录，只保留管理员登录用于后台维护。下载/解析本就无需登录（仅 `/admin/*` 鉴权），故只需移除公开注册 + 用户侧登录 UI。
+- [x] T24.1 后端去掉 `POST /api/auth/register` 路由（`routes.py`）+ `AuthManager.register()`（`auth.py`），仅保留 `login`/`me`；管理员账号由环境变量 `ADMIN_USERNAME/PASSWORD` 种子
+- [x] T24.2 前端 `api/index.js` 删除 `register()`；`LoginView.vue` 去掉登录/注册切换 Tab，改为纯「管理员登录」，非 admin 账号登录直接拒绝
+- [x] T24.3 `AppHeader.vue` 移除公开「登录」按钮，普通访客顶栏干净；管理员经 `/admin` URL（路由守卫重定向到 `/login`）进入，登录后顶栏显示「管理端 / 退出」
+- [x] T24.4 `npm run build` 通过；后端模块 import 校验通过
+
+### T25 部署稳定性：下载目录自动清理 + 固定签名密钥（2026-06-19）
+> 两处部署隐患：①`downloads/` 只增不减会撑爆磁盘（`FILE_TTL` 早有定义却从未接线）；②`AUTH_SECRET` 未设时每次重启随机生成，管理员被强制重登。
+- [x] T25.1 `config.py` 新增 `DOWNLOAD_MAX_GB`（默认 5，容量上限）、`CLEANUP_INTERVAL`（默认 600s）；`FILE_TTL` 沿用
+- [x] T25.2 新建 `services/cleanup.py`：daemon 线程巡检，按「时长 TTL + 总容量（最旧优先）」两规则清理；跳过 `.part/.ytdl/.tmp` 和最近 120s 修改的文件，避免误删在下载/刚完成的文件
+- [x] T25.3 `main.py` 启动钩子起清理线程、shutdown 钩子停线程（与 offload/task_manager 一致）
+- [x] T25.4 `auth.py` 签名密钥改 `_load_secret()`：`AUTH_SECRET` 环境变量优先，否则持久化到 `backend/.auth_secret`（0600 权限）保证重启 token 不失效；`.gitignore` 加该文件
+- [x] T25.5 实测：import 通过、密钥两次加载一致、`cleanup_once()` 正常回收（巡检中清掉 1 个过期文件）
